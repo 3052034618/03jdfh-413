@@ -19,6 +19,11 @@ import {
   RotateCcw,
   AlertCircle,
   Lightbulb,
+  GitCompare,
+  X,
+  ArrowLeftRight,
+  Zap,
+  Flag,
 } from "lucide-react";
 import { useStoryStore } from "../store/useStoryStore";
 import {
@@ -29,8 +34,11 @@ import {
   getUniqueCluesForPath,
   analyzePath,
   generatePathSummary,
+  comparePaths,
+  generatePathComparisonSummary,
   type PathDetail,
   type PathAnalysis,
+  type PathComparison,
 } from "../utils/storyEngine";
 import { cn } from "../lib/utils";
 import type { StoryCard } from "../types";
@@ -273,7 +281,7 @@ function PathChainView({
           </div>
         )}
 
-        <div className="p-2.5 rounded bg-horror-card/50 border border-horror-border/50 grid grid-cols-2 gap-2">
+        <div className="p-2.5 rounded bg-horror-card/50 border border-horror-border/50 grid grid-cols-3 gap-2">
           <div>
             <div className="text-[10px] text-horror-muted">结局前 3 步新增线索</div>
             <div className="text-sm font-display font-bold text-horror-text">
@@ -289,6 +297,245 @@ function PathChainView({
               {(analysis.endingClueDensity * 10).toFixed(1)} / 10
             </div>
           </div>
+          <div>
+            <div className="text-[10px] text-horror-muted">末尾空转</div>
+            <div
+              className={cn(
+                "text-sm font-display font-bold",
+                analysis.hasEndingDrySpell ? "text-horror-bloodLight" : "text-horror-triggerLight",
+              )}
+            >
+              {analysis.hasEndingDrySpell ? `${analysis.endingDrySpellLength} 步 ⚠️` : "无"}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PathComparisonView({
+  path1,
+  path2,
+  cards,
+  onClose,
+}: {
+  path1: { ending: StoryCard; path: string[]; key: string };
+  path2: { ending: StoryCard; path: string[]; key: string };
+  cards: StoryCard[];
+  onClose: () => void;
+}) {
+  const details1 = useMemo(() => getPathDetails(path1.path, cards), [path1.path, cards]);
+  const details2 = useMemo(() => getPathDetails(path2.path, cards), [path2.path, cards]);
+  const comparison: PathComparison = useMemo(
+    () => comparePaths(path1.path, path2.path, cards, details1, details2),
+    [path1.path, path2.path, cards, details1, details2],
+  );
+  const [copied, setCopied] = useState(false);
+
+  const handleCopySummary = async () => {
+    const summary = generatePathComparisonSummary(
+      path1.path,
+      path2.path,
+      cards,
+      details1,
+      details2,
+      comparison,
+    );
+    try {
+      await navigator.clipboard.writeText(summary);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      alert("复制失败，请手动选择文本复制");
+    }
+  };
+
+  const cardMap = new Map(cards.map((c) => [c.id, c]));
+  const sharedNames = comparison.sharedCards.map((id) => cardMap.get(id)?.title || id);
+  const unique1Names = comparison.uniqueToPath1.map((id) => cardMap.get(id)?.title || id);
+  const unique2Names = comparison.uniqueToPath2.map((id) => cardMap.get(id)?.title || id);
+
+  return (
+    <div className="p-3 rounded-lg bg-gradient-to-br from-horror-card to-horror-bg border-2 border-horror-warning/40 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <GitCompare className="w-4 h-4 text-horror-warning" />
+          <span className="text-sm font-medium text-horror-text">路径对比视图</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCopySummary}
+            className="text-[11px] flex items-center gap-1 px-2 py-0.5 rounded border border-horror-blood/40 text-horror-bloodLight hover:bg-horror-blood/10 transition-colors"
+          >
+            {copied ? (
+              <>
+                <Check className="w-3 h-3" /> 已复制
+              </>
+            ) : (
+              <>
+                <Copy className="w-3 h-3" /> 复制对比摘要
+              </>
+            )}
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-horror-deficient/20 text-horror-muted hover:text-horror-bloodLight transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="p-2 rounded bg-horror-blood/10 border border-horror-blood/30">
+          <div className="flex items-center gap-1 text-[11px]">
+            {path1.ending.endingType === "good" ? (
+              <CheckCircle className="w-3 h-3 text-horror-triggerLight" />
+            ) : path1.ending.endingType === "bad" ? (
+              <XCircle className="w-3 h-3 text-horror-bloodLight" />
+            ) : (
+              <Flag className="w-3 h-3 text-horror-warning" />
+            )}
+            <span className="font-medium text-horror-text truncate">{path1.ending.title}</span>
+          </div>
+          <div className="text-[10px] text-horror-muted mt-0.5">{path1.path.length} 步</div>
+        </div>
+        <div className="p-2 rounded bg-horror-trigger/10 border border-horror-trigger/30">
+          <div className="flex items-center gap-1 text-[11px]">
+            {path2.ending.endingType === "good" ? (
+              <CheckCircle className="w-3 h-3 text-horror-triggerLight" />
+            ) : path2.ending.endingType === "bad" ? (
+              <XCircle className="w-3 h-3 text-horror-bloodLight" />
+            ) : (
+              <Flag className="w-3 h-3 text-horror-warning" />
+            )}
+            <span className="font-medium text-horror-text truncate">{path2.ending.title}</span>
+          </div>
+          <div className="text-[10px] text-horror-muted mt-0.5">{path2.path.length} 步</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-center">
+        <div className="p-2 rounded bg-horror-bg/50 border border-horror-border/50">
+          <div className="text-[10px] text-horror-muted mb-0.5">共享场景</div>
+          <div className="text-xl font-display font-bold text-horror-warning">
+            {comparison.sharedSteps}
+          </div>
+        </div>
+        <div className="p-2 rounded bg-horror-bg/50 border border-horror-border/50">
+          <div className="text-[10px] text-horror-muted mb-0.5">共享线索</div>
+          <div className="text-xl font-display font-bold text-horror-warning">
+            {comparison.sharedClues.length}
+          </div>
+        </div>
+      </div>
+
+      <div className="p-2.5 rounded bg-horror-warning/10 border border-horror-warning/40">
+        <div className="flex items-center gap-1.5 text-xs mb-1.5">
+          <ArrowLeftRight className="w-3.5 h-3.5 text-horror-warning" />
+          <span className="font-medium text-horror-warning">
+            第 {comparison.divergenceStep + 1} 步在「{comparison.divergenceCardTitle}」处分歧
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-[10px]">
+          <div className="p-1.5 rounded bg-horror-blood/10 border border-horror-blood/30">
+            <div className="text-horror-bloodLight font-medium mb-0.5">路线 1 选择：</div>
+            <div className="text-horror-text">{comparison.choice1AtDivergence}</div>
+          </div>
+          <div className="p-1.5 rounded bg-horror-trigger/10 border border-horror-trigger/30">
+            <div className="text-horror-triggerLight font-medium mb-0.5">路线 2 选择：</div>
+            <div className="text-horror-text">{comparison.choice2AtDivergence}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {sharedNames.length > 0 && (
+          <div>
+            <div className="text-[10px] text-horror-warning font-medium mb-1 flex items-center gap-1">
+              <Circle className="w-2.5 h-2.5 fill-horror-warning text-horror-warning" />
+              共享场景（{comparison.sharedSteps}）:
+            </div>
+            <div className="text-[10px] text-horror-text flex flex-wrap items-center gap-1">
+              {sharedNames.map((n, i) => (
+                <span key={i} className="flex items-center gap-1">
+                  <span className="px-1.5 py-0.5 rounded bg-horror-warning/15 border border-horror-warning/30">
+                    {n}
+                  </span>
+                  {i < sharedNames.length - 1 && <ChevronRight className="w-2.5 h-2.5 text-horror-muted" />}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        {unique1Names.length > 0 && (
+          <div>
+            <div className="text-[10px] text-horror-bloodLight font-medium mb-1 flex items-center gap-1">
+              <XCircle className="w-2.5 h-2.5 text-horror-bloodLight" />
+              {path1.ending.title} 独有场景（{comparison.uniqueToPath1.length}）:
+            </div>
+            <div className="text-[10px] text-horror-text flex flex-wrap items-center gap-1">
+              {unique1Names.map((n, i) => (
+                <span key={i} className="flex items-center gap-1">
+                  <span className="px-1.5 py-0.5 rounded bg-horror-blood/15 border border-horror-blood/30">
+                    {n}
+                  </span>
+                  {i < unique1Names.length - 1 && <ChevronRight className="w-2.5 h-2.5 text-horror-muted" />}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        {unique2Names.length > 0 && (
+          <div>
+            <div className="text-[10px] text-horror-triggerLight font-medium mb-1 flex items-center gap-1">
+              <CheckCircle className="w-2.5 h-2.5 text-horror-triggerLight" />
+              {path2.ending.title} 独有场景（{comparison.uniqueToPath2.length}）:
+            </div>
+            <div className="text-[10px] text-horror-text flex flex-wrap items-center gap-1">
+              {unique2Names.map((n, i) => (
+                <span key={i} className="flex items-center gap-1">
+                  <span className="px-1.5 py-0.5 rounded bg-horror-trigger/15 border border-horror-trigger/30">
+                    {n}
+                  </span>
+                  {i < unique2Names.length - 1 && <ChevronRight className="w-2.5 h-2.5 text-horror-muted" />}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-2">
+        {comparison.sharedClues.length > 0 && (
+          <div className="p-2 rounded bg-horror-bg/50 border border-horror-border/50">
+            <div className="text-[10px] text-horror-warning font-medium mb-1">
+              共享线索（{comparison.sharedClues.length}）: {comparison.sharedClues.join("、")}
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="p-2 rounded bg-horror-blood/10 border border-horror-blood/30">
+            <div className="text-[10px] text-horror-bloodLight font-medium mb-0.5">
+              {path1.ending.title} 独有线索
+            </div>
+            <div className="text-[10px] text-horror-text">
+              {comparison.uniqueToPath1Clues.length > 0
+                ? comparison.uniqueToPath1Clues.join("、")
+                : "（无）"}
+            </div>
+          </div>
+          <div className="p-2 rounded bg-horror-trigger/10 border border-horror-trigger/30">
+            <div className="text-[10px] text-horror-triggerLight font-medium mb-0.5">
+              {path2.ending.title} 独有线索
+            </div>
+            <div className="text-[10px] text-horror-text">
+              {comparison.uniqueToPath2Clues.length > 0
+                ? comparison.uniqueToPath2Clues.join("、")
+                : "（无）"}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -298,6 +545,8 @@ function PathChainView({
 export default function RouteTestPanel() {
   const { cards, testResult, setTestResult } = useStoryStore();
   const [expandedPath, setExpandedPath] = useState<string | null>(null);
+  const [compareMode, setCompareMode] = useState(false);
+  const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
 
   const openingCard = useMemo(() => cards.find((c) => c.isOpening), [cards]);
   const endingCards = useMemo(() => cards.filter((c) => c.isEnding), [cards]);
@@ -320,11 +569,15 @@ export default function RouteTestPanel() {
     const result = traverseStory(cards);
     setTestResult(result);
     setExpandedPath(null);
+    setCompareMode(false);
+    setSelectedForCompare([]);
   };
 
   const handleClearTest = () => {
     setTestResult(null);
     setExpandedPath(null);
+    setCompareMode(false);
+    setSelectedForCompare([]);
   };
 
   const allPaths = useMemo(() => {
@@ -360,6 +613,26 @@ export default function RouteTestPanel() {
     return paths;
   }, [testResult, endingCards, cards]);
 
+  const toggleCompareSelect = (key: string) => {
+    setSelectedForCompare((prev) => {
+      if (prev.includes(key)) {
+        return prev.filter((k) => k !== key);
+      }
+      if (prev.length >= 2) {
+        return [prev[1], key];
+      }
+      return [...prev, key];
+    });
+  };
+
+  const selectedItems = useMemo(() => {
+    if (selectedForCompare.length !== 2) return null;
+    const item1 = allPaths.find((p) => p.key === selectedForCompare[0]);
+    const item2 = allPaths.find((p) => p.key === selectedForCompare[1]);
+    if (!item1 || !item2) return null;
+    return { path1: item1, path2: item2 };
+  }, [selectedForCompare, allPaths]);
+
   return (
     <div className="panel-container flex flex-col h-full">
       <div className="panel-header">
@@ -367,7 +640,7 @@ export default function RouteTestPanel() {
         <h2 className="font-display font-semibold text-lg tracking-wide">路线测试区</h2>
       </div>
 
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-horror-border/50">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-horror-border/50 flex-wrap">
         {!testResult ? (
           <button
             onClick={handleRunTest}
@@ -391,6 +664,22 @@ export default function RouteTestPanel() {
               <RotateCcw className="w-3.5 h-3.5" />
               重测
             </button>
+            {allPaths.length >= 2 && (
+              <button
+                onClick={() => {
+                  setCompareMode(!compareMode);
+                  setSelectedForCompare([]);
+                }}
+                className={cn(
+                  "horror-btn flex items-center gap-1.5 text-xs",
+                  compareMode && "bg-horror-warning/20 border-horror-warning/40 text-horror-warning",
+                )}
+                title="进入路径对比模式"
+              >
+                <GitCompare className="w-3.5 h-3.5" />
+                {compareMode ? "退出对比" : "对比模式"}
+              </button>
+            )}
           </>
         )}
         {!openingCard && (
@@ -399,9 +688,24 @@ export default function RouteTestPanel() {
             请先标记一张开场卡片
           </span>
         )}
+        {compareMode && (
+          <span className="ml-auto text-[11px] text-horror-warning flex items-center gap-1">
+            <Zap className="w-3 h-3" />
+            请选择两条路径进行对比（已选 {selectedForCompare.length}/2）
+          </span>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {compareMode && selectedItems && (
+          <PathComparisonView
+            path1={selectedItems.path1}
+            path2={selectedItems.path2}
+            cards={cards}
+            onClose={() => setSelectedForCompare([])}
+          />
+        )}
+
         {stats && (
           <div className="grid grid-cols-2 gap-2">
             <div className="p-3 rounded bg-horror-card border border-horror-border">
@@ -484,92 +788,117 @@ export default function RouteTestPanel() {
             <div className="flex items-center gap-2">
               <Circle className="w-4 h-4 text-horror-warning" />
               <span className="text-sm font-medium">因果链报告</span>
-              <span className="text-xs text-horror-muted">（点击路径展开详情，可复制讲评摘要）</span>
+              <span className="text-xs text-horror-muted">
+                （点击路径展开详情
+                {compareMode ? "，或点击左侧复选框加入对比" : "，可复制讲评摘要）"}
+              </span>
             </div>
             {allPaths.map((item) => {
               const isExpanded = expandedPath === item.key;
+              const isSelected = selectedForCompare.includes(item.key);
               return (
                 <div
                   key={item.key}
                   className={cn(
                     "rounded border overflow-hidden transition-all",
-                    item.clues < 2
+                    isSelected
+                      ? "ring-2 ring-horror-warning border-horror-warning"
+                      : item.clues < 2
                       ? "bg-horror-deficient/10 border-horror-deficient/50"
                       : "bg-horror-trigger/10 border-horror-trigger/30",
                   )}
                 >
-                  <button
-                    onClick={() => setExpandedPath(isExpanded ? null : item.key)}
-                    className="w-full p-3 text-left flex flex-col gap-2 hover:bg-horror-bg/30 transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium flex items-center gap-1.5">
-                        {isExpanded ? (
-                          <ChevronDown className="w-3.5 h-3.5 text-horror-muted" />
-                        ) : (
-                          <ChevronRight className="w-3.5 h-3.5 text-horror-muted" />
-                        )}
-                        {item.ending.endingType === "good" && (
-                          <CheckCircle className="w-3.5 h-3.5 text-horror-triggerLight" />
-                        )}
-                        {item.ending.endingType === "bad" && (
-                          <XCircle className="w-3.5 h-3.5 text-horror-bloodLight" />
-                        )}
-                        {item.ending.endingType === "neutral" && (
-                          <Circle className="w-3.5 h-3.5 text-horror-warning" />
-                        )}
-                        {item.ending.title}
-                        {item.hasLoop && (
-                          <span className="text-[10px] px-1 py-0.5 rounded bg-horror-warning/20 text-horror-warning ml-1">
-                            含循环
-                          </span>
-                        )}
-                      </span>
-                      <span
+                  <div className="flex">
+                    {compareMode && (
+                      <button
+                        onClick={() => toggleCompareSelect(item.key)}
                         className={cn(
-                          "text-xs px-2 py-0.5 rounded",
-                          item.clues < 2
-                            ? "bg-horror-deficient/30 text-horror-bloodLight"
-                            : "bg-horror-trigger/30 text-horror-triggerLight",
+                          "px-2 flex items-center justify-center border-r transition-colors",
+                          isSelected
+                            ? "bg-horror-warning/20 border-horror-warning/50 text-horror-warning"
+                            : "bg-horror-bg/50 border-horror-border/50 text-horror-muted hover:text-horror-warning",
                         )}
                       >
-                        {item.clues} 个线索{item.clues < 2 && " · 不足"}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1 text-xs ml-5">
-                      {item.path.map((cid, i) => {
-                        const c = cards.find((card) => card.id === cid);
-                        const isRepeat =
-                          i > 0 && item.path.slice(0, i).includes(cid);
-                        return (
-                          <span key={`${cid}-${i}`} className="flex items-center gap-1">
-                            <span
-                              className={cn(
-                                "px-1.5 py-0.5 rounded",
-                                isRepeat
-                                  ? "bg-horror-warning/20 text-horror-warning border border-horror-warning/40 border-dashed"
-                                  : "",
-                              )}
-                              style={
-                                !isRepeat && testResult?.[cid]
-                                  ? {
-                                      backgroundColor: `${getStatusColor(testResult[cid].status)}20`,
-                                      color: getStatusColor(testResult[cid].status),
-                                    }
-                                  : undefined
-                              }
-                            >
-                              {c?.title || cid}
-                              {isRepeat && " 🔄"}
+                        {isSelected ? (
+                          <Check className="w-4 h-4" />
+                        ) : (
+                          <div className="w-3.5 h-3.5 rounded border border-current" />
+                        )}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setExpandedPath(isExpanded ? null : item.key)}
+                      className="flex-1 p-3 text-left flex flex-col gap-2 hover:bg-horror-bg/30 transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium flex items-center gap-1.5">
+                          {isExpanded ? (
+                            <ChevronDown className="w-3.5 h-3.5 text-horror-muted" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5 text-horror-muted" />
+                          )}
+                          {item.ending.endingType === "good" && (
+                            <CheckCircle className="w-3.5 h-3.5 text-horror-triggerLight" />
+                          )}
+                          {item.ending.endingType === "bad" && (
+                            <XCircle className="w-3.5 h-3.5 text-horror-bloodLight" />
+                          )}
+                          {item.ending.endingType === "neutral" && (
+                            <Circle className="w-3.5 h-3.5 text-horror-warning" />
+                          )}
+                          {item.ending.title}
+                          {item.hasLoop && (
+                            <span className="text-[10px] px-1 py-0.5 rounded bg-horror-warning/20 text-horror-warning ml-1">
+                              含循环
                             </span>
-                            {i < item.path.length - 1 && (
-                              <ChevronRight className="w-3 h-3 text-horror-muted" />
-                            )}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </button>
+                          )}
+                        </span>
+                        <span
+                          className={cn(
+                            "text-xs px-2 py-0.5 rounded",
+                            item.clues < 2
+                              ? "bg-horror-deficient/30 text-horror-bloodLight"
+                              : "bg-horror-trigger/30 text-horror-triggerLight",
+                          )}
+                        >
+                          {item.clues} 个线索{item.clues < 2 && " · 不足"}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1 text-xs ml-5">
+                        {item.path.map((cid, i) => {
+                          const c = cards.find((card) => card.id === cid);
+                          const isRepeat =
+                            i > 0 && item.path.slice(0, i).includes(cid);
+                          return (
+                            <span key={`${cid}-${i}`} className="flex items-center gap-1">
+                              <span
+                                className={cn(
+                                  "px-1.5 py-0.5 rounded",
+                                  isRepeat
+                                    ? "bg-horror-warning/20 text-horror-warning border border-horror-warning/40 border-dashed"
+                                    : "",
+                                )}
+                                style={
+                                  !isRepeat && testResult?.[cid]
+                                    ? {
+                                        backgroundColor: `${getStatusColor(testResult[cid].status)}20`,
+                                        color: getStatusColor(testResult[cid].status),
+                                      }
+                                    : undefined
+                                }
+                              >
+                                {c?.title || cid}
+                                {isRepeat && " 🔄"}
+                              </span>
+                              {i < item.path.length - 1 && (
+                                <ChevronRight className="w-3 h-3 text-horror-muted" />
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </button>
+                  </div>
                   {isExpanded && (
                     <div className="px-3 pb-3">
                       <PathChainView
@@ -592,6 +921,7 @@ export default function RouteTestPanel() {
             <p className="text-xs mt-1">工具将自动遍历所有剧情分支（支持循环和汇合）</p>
             <p className="text-xs mt-3">并标记未触发卡片和线索不足的结局</p>
             <p className="text-xs mt-1">展开路径可查看完整因果链报告和讲评摘要</p>
+            <p className="text-xs mt-1">点击「对比模式」可选择两条路径进行分支分析</p>
           </div>
         )}
       </div>

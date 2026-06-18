@@ -16,13 +16,19 @@ import {
   ThumbsUp,
   BrainCircuit,
   Sparkle,
+  FileText,
+  Copy,
+  Check,
+  ScrollText,
 } from "lucide-react";
 import { useStoryStore } from "../store/useStoryStore";
 import {
   generateReviewHints,
   recommendScores,
+  generateOverallReviewDraft,
   type ReviewHint,
   type ScoreRecommendation,
+  type OverallReviewDraft,
 } from "../utils/storyEngine";
 import { cn } from "../lib/utils";
 
@@ -227,6 +233,85 @@ function ScoreRecommendCard({
   );
 }
 
+function OverallDraftCard({
+  draft,
+  onApply,
+  onCopy,
+  copied,
+}: {
+  draft: OverallReviewDraft;
+  onApply: () => void;
+  onCopy: () => void;
+  copied: boolean;
+}) {
+  return (
+    <div className="p-3 rounded bg-gradient-to-br from-horror-card to-horror-bg border border-horror-border space-y-2.5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <ScrollText className="w-4 h-4 text-horror-bloodLight" />
+          <span className="text-sm font-medium">AI 总评草稿</span>
+          <span className="text-[10px] text-horror-muted">
+            覆盖率 / 伏笔 / 分支结构一站式汇总
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={onCopy}
+            className="text-[11px] px-2 py-0.5 rounded border border-horror-border text-horror-muted hover:text-horror-text hover:border-horror-muted transition-colors flex items-center gap-1"
+          >
+            {copied ? (
+              <>
+                <Check className="w-3 h-3" /> 已复制
+              </>
+            ) : (
+              <>
+                <Copy className="w-3 h-3" /> 复制
+              </>
+            )}
+          </button>
+          <button
+            onClick={onApply}
+            className="text-[11px] px-2 py-0.5 rounded border border-horror-blood/40 text-horror-bloodLight hover:bg-horror-blood/10 transition-colors flex items-center gap-1"
+          >
+            <Wand2 className="w-3 h-3" /> 带入评语
+          </button>
+        </div>
+      </div>
+
+      <div className="text-xs text-horror-text bg-horror-bg/60 p-2.5 rounded border border-horror-border/50 whitespace-pre-wrap font-mono text-[11px] leading-relaxed max-h-48 overflow-y-auto">
+        {draft.fullText}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-[10px]">
+        {draft.strengths.length > 0 && (
+          <div className="p-2 rounded bg-horror-trigger/10 border border-horror-trigger/30">
+            <div className="flex items-center gap-1 text-horror-triggerLight font-medium mb-1">
+              <ThumbsUp className="w-3 h-3" /> 亮点 ({draft.strengths.length})
+            </div>
+            <div className="text-horror-muted space-y-0.5">
+              {draft.strengths.slice(0, 3).map((s, i) => (
+                <div key={i} className="line-clamp-2">· {s}</div>
+              ))}
+            </div>
+          </div>
+        )}
+        {draft.improvements.length > 0 && (
+          <div className="p-2 rounded bg-horror-deficient/10 border border-horror-deficient/30">
+            <div className="flex items-center gap-1 text-horror-bloodLight font-medium mb-1">
+              <AlertTriangle className="w-3 h-3" /> 改进点 ({draft.improvements.length})
+            </div>
+            <div className="text-horror-muted space-y-0.5">
+              {draft.improvements.slice(0, 3).map((s, i) => (
+                <div key={i} className="line-clamp-2">· {s}</div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function HintCard({
   hint,
   onApply,
@@ -275,6 +360,7 @@ export default function ReviewPanel() {
   const { cards, testResult, review, setReview, clearReview } = useStoryStore();
   const [saved, setSaved] = useState(false);
   const [scoreApplied, setScoreApplied] = useState(false);
+  const [draftCopied, setDraftCopied] = useState(false);
 
   const hints = useMemo(
     () => generateReviewHints(cards, testResult),
@@ -284,6 +370,11 @@ export default function ReviewPanel() {
   const scoreRec = useMemo(
     () => recommendScores(cards, testResult, hints),
     [cards, testResult, hints],
+  );
+
+  const overallDraft = useMemo(
+    () => generateOverallReviewDraft(cards, testResult),
+    [cards, testResult],
   );
 
   const handleSave = () => {
@@ -298,11 +389,30 @@ export default function ReviewPanel() {
     const currentComment = review?.comment || "";
     const prefix = currentComment ? `${currentComment}\n\n` : "";
     setReview({ comment: `${prefix}${hint.suggestedText}` });
+    setScoreApplied(false);
   };
 
   const applyAllHints = () => {
     const text = hints.map((h, i) => `${i + 1}. ${h.suggestedText}`).join("\n\n");
     setReview({ comment: text });
+    setScoreApplied(false);
+  };
+
+  const applyOverallDraft = () => {
+    const currentComment = review?.comment || "";
+    const prefix = currentComment ? `${currentComment}\n\n` : "";
+    setReview({ comment: `${prefix}${overallDraft.fullText}` });
+    setScoreApplied(false);
+  };
+
+  const copyOverallDraft = async () => {
+    try {
+      await navigator.clipboard.writeText(overallDraft.fullText);
+      setDraftCopied(true);
+      setTimeout(() => setDraftCopied(false), 2000);
+    } catch {
+      alert("复制失败，请手动选择文本复制");
+    }
   };
 
   const applyScoreRecommendation = () => {
@@ -358,6 +468,15 @@ export default function ReviewPanel() {
           />
         )}
 
+        {testResult && (
+          <OverallDraftCard
+            draft={overallDraft}
+            onApply={applyOverallDraft}
+            onCopy={copyOverallDraft}
+            copied={draftCopied}
+          />
+        )}
+
         {hints.length > 0 && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -392,7 +511,7 @@ export default function ReviewPanel() {
               <Info className="w-3.5 h-3.5 text-horror-warning" />
               <span className="text-horror-warning">小提示</span>
             </div>
-            先在中间栏运行路线测试，这里会根据测试结果自动生成评分推荐和点评建议。
+            先在中间栏运行路线测试，这里会根据测试结果自动生成评分推荐、总评草稿和点评建议。
           </div>
         )}
 
@@ -455,7 +574,7 @@ export default function ReviewPanel() {
               setScoreApplied(false);
             }}
             className="horror-input resize-none h-40"
-            placeholder="请从规则设定、玩家体验、叙事技巧等方面给出简短评语，指出优点和改进建议...（可使用上方AI推荐评分或点评提示一键带入）"
+            placeholder="请从规则设定、玩家体验、叙事技巧等方面给出简短评语，指出优点和改进建议...（可使用上方AI推荐评分、总评草稿或点评提示一键带入）"
           />
           <p className="text-xs text-horror-muted mt-1.5">
             {defaultReview.comment.length} / 800 字
