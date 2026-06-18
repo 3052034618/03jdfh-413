@@ -20,6 +20,9 @@ import {
   Copy,
   Check,
   ScrollText,
+  GitBranch,
+  Merge,
+  GitCommit,
 } from "lucide-react";
 import { useStoryStore } from "../store/useStoryStore";
 import {
@@ -29,6 +32,7 @@ import {
   type ReviewHint,
   type ScoreRecommendation,
   type OverallReviewDraft,
+  type BranchDesignSummary,
 } from "../utils/storyEngine";
 import { cn } from "../lib/utils";
 
@@ -308,6 +312,43 @@ function OverallDraftCard({
           </div>
         )}
       </div>
+
+      {draft.branchDesign && (
+        <div className="p-2.5 rounded bg-horror-warning/10 border border-horror-warning/30">
+          <div className="flex items-center gap-1.5 text-xs mb-1.5">
+            <GitCommit className="w-3.5 h-3.5 text-horror-warning" />
+            <span className="text-horror-warning font-medium">分支设计评价</span>
+          </div>
+          <div className="grid grid-cols-4 gap-1.5 text-center text-[10px] mb-1.5">
+            <div className="p-1.5 rounded bg-horror-bg/50 border border-horror-border/50">
+              <div className="text-horror-muted">分支点</div>
+              <div className="text-sm font-display font-bold text-horror-text">{draft.branchDesign.divergencePoints}</div>
+            </div>
+            <div className="p-1.5 rounded bg-horror-bg/50 border border-horror-border/50">
+              <div className="text-horror-muted">汇合点</div>
+              <div className="text-sm font-display font-bold text-horror-text">{draft.branchDesign.convergencePoints}</div>
+            </div>
+            <div className="p-1.5 rounded bg-horror-bg/50 border border-horror-border/50">
+              <div className="text-horror-muted">独立路径</div>
+              <div className="text-sm font-display font-bold text-horror-text">{draft.branchDesign.uniquePaths}</div>
+            </div>
+            <div className="p-1.5 rounded bg-horror-bg/50 border border-horror-border/50">
+              <div className="text-horror-muted">结局</div>
+              <div className="text-sm font-display font-bold text-horror-text">
+                {draft.branchDesign.endingTypes.good}好{draft.branchDesign.endingTypes.bad}坏
+              </div>
+            </div>
+          </div>
+          <div className="text-[10px] text-horror-text mb-1">{draft.branchDesign.assessment}</div>
+          {draft.branchDesign.suggestions.length > 0 && (
+            <div className="space-y-0.5">
+              {draft.branchDesign.suggestions.map((s, i) => (
+                <div key={i} className="text-[10px] text-horror-muted">· {s}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

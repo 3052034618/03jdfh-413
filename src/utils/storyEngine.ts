@@ -1,4 +1,4 @@
-import type { StoryCard, TestResult, CardTriggerStatus, Choice } from "../types";
+import type { StoryCard, TestResult, CardTriggerStatus, Choice, PathStep } from "../types";
 
 const CLUE_THRESHOLD = 2;
 const MAX_PATH_LENGTH = 50;
@@ -7,11 +7,6 @@ const MAX_PATHS = 200;
 export function generateId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
-
-export type PathStep = {
-  cardId: string;
-  choiceId?: string;
-};
 
 export type PathDetail = {
   cardId: string;
@@ -44,6 +39,19 @@ export type PathAnalysis = {
   hasEndingDrySpell: boolean;
 };
 
+export type ComparisonTimeline = {
+  segments: {
+    type: "shared" | "divergent" | "reconverge";
+    label: string;
+    startStep: number;
+    endStep: number;
+    cards1: string[];
+    cards2: string[];
+    choice1?: string;
+    choice2?: string;
+  }[];
+};
+
 export type PathComparison = {
   sharedSteps: number;
   divergenceStep: number;
@@ -56,12 +64,23 @@ export type PathComparison = {
   uniqueToPath2Clues: string[];
   choice1AtDivergence: string;
   choice2AtDivergence: string;
+  timeline: ComparisonTimeline;
+};
+
+export type BranchDesignSummary = {
+  divergencePoints: number;
+  convergencePoints: number;
+  endingTypes: { good: number; bad: number; neutral: number };
+  uniquePaths: number;
+  assessment: string;
+  suggestions: string[];
 };
 
 export type OverallReviewDraft = {
   summary: string;
   strengths: string[];
   improvements: string[];
+  branchDesign: BranchDesignSummary | null;
   fullText: string;
 };
 
@@ -116,6 +135,10 @@ export function getStoryGraph(cards: StoryCard[]): StoryGraph {
   return { nodes, edges };
 }
 
+function pathToCardIds(path: PathStep[]): string[] {
+  return path.map((s) => s.cardId);
+}
+
 export function traverseStory(cards: StoryCard[]): TestResult {
   const result: TestResult = {};
   const cardMap = new Map(cards.map((c) => [c.id, c]));
@@ -135,71 +158,70 @@ export function traverseStory(cards: StoryCard[]): TestResult {
   const pathSignatures = new Set<string>();
   let totalPaths = 0;
 
-  function buildSignature(cardIds: string[], choiceIds: (string | undefined)[]): string {
+  function buildSignature(steps: PathStep[]): string {
     const parts: string[] = [];
-    cardIds.forEach((cid, i) => {
+    steps.forEach((s, i) => {
       if (i === 0) {
-        parts.push(cid);
+        parts.push(s.cardId);
       } else {
-        const chId = choiceIds[i - 1] || "?";
-        parts.push(`[${chId}]→${cid}`);
+        const chId = s.choiceId || "?";
+        parts.push(`[${chId}]→${s.cardId}`);
       }
     });
     return parts.join("|");
   }
 
-  function recordPath(cardPath: string[], choicePath: (string | undefined)[]) {
-    const sig = buildSignature(cardPath, choicePath);
+  function recordPath(steps: PathStep[]) {
+    const sig = buildSignature(steps);
     if (pathSignatures.has(sig)) return;
     if (totalPaths >= MAX_PATHS) return;
     pathSignatures.add(sig);
     totalPaths++;
 
-    cardPath.forEach((cid) => {
+    const cardIds = pathToCardIds(steps);
+    cardIds.forEach((cid) => {
       if (result[cid]) {
         result[cid].status = "triggered";
         const already = result[cid].reachedPaths.some(
-          (p) => p.length === cardPath.length && p.every((v, i) => v === cardPath[i]),
+          (p) =>
+            p.length === steps.length &&
+            p.every((v, i) => v.cardId === steps[i].cardId && v.choiceId === steps[i].choiceId),
         );
         if (!already) {
-          result[cid].reachedPaths.push([...cardPath]);
+          result[cid].reachedPaths.push(steps.map((s) => ({ ...s })));
         }
       }
     });
   }
 
-  function dfs(
-    currentId: string,
-    cardPath: string[],
-    choicePath: (string | undefined)[],
-  ) {
+  function dfs(currentId: string, steps: PathStep[], incomingChoiceId?: string) {
     const current = cardMap.get(currentId);
     if (!current) return;
 
-    if (cardPath.length >= MAX_PATH_LENGTH) {
-      recordPath([...cardPath, currentId], choicePath);
+    if (steps.length >= MAX_PATH_LENGTH) {
+      recordPath([...steps, { cardId: currentId, choiceId: incomingChoiceId }]);
       return;
     }
 
-    const loopIndex = cardPath.indexOf(currentId);
+    const loopIndex = steps.findIndex((s) => s.cardId === currentId);
     if (loopIndex !== -1) {
-      recordPath([...cardPath, currentId], choicePath);
+      recordPath([...steps, { cardId: currentId, choiceId: incomingChoiceId }]);
       return;
     }
 
-    const newCardPath = [...cardPath, currentId];
+    const newSteps = [...steps, { cardId: currentId, choiceId: incomingChoiceId }];
 
     if (result[currentId]) {
       result[currentId].status = "triggered";
     }
 
     if (current.isEnding) {
-      recordPath(newCardPath, choicePath);
+      recordPath(newSteps);
       return;
     }
 
     if (current.choices.length === 0) {
-      recordPath(newCardPath, choicePath);
+      recordPath(newSteps);
       return;
     }
 
@@ -207,16 +229,16 @@ export function traverseStory(cards: StoryCard[]): TestResult {
     current.choices.forEach((choice) => {
       if (choice.nextCardId && cardMap.has(choice.nextCardId)) {
         hasValidNext = true;
-        dfs(choice.nextCardId, newCardPath, [...choicePath, choice.id]);
+        dfs(choice.nextCardId, newSteps, choice.id);
       }
     });
 
     if (!hasValidNext) {
-      recordPath(newCardPath, choicePath);
+      recordPath(newSteps);
     }
   }
 
-  dfs(openingCard.id, [], []);
+  dfs(openingCard.id, []);
 
   cards.forEach((card) => {
     if (card.isEnding && result[card.id]?.status === "triggered") {
@@ -225,8 +247,8 @@ export function traverseStory(cards: StoryCard[]): TestResult {
 
       const pathClueCounts = pathsToEnding.map((path) => {
         const uniqueClues = new Set<string>();
-        path.forEach((cid) => {
-          const c = cardMap.get(cid);
+        path.forEach((s) => {
+          const c = cardMap.get(s.cardId);
           if (c) c.clueTags.forEach((t) => uniqueClues.add(t));
         });
         return uniqueClues.size;
@@ -243,22 +265,30 @@ export function traverseStory(cards: StoryCard[]): TestResult {
   return result;
 }
 
+function normalizeStep(step: PathStep | string): PathStep {
+  if (typeof step === "string") {
+    return { cardId: step };
+  }
+  return step;
+}
+
 export function getPathDetails(
-  path: string[],
+  path: PathStep[],
   cards: StoryCard[],
 ): PathDetail[] {
+  const normalizedPath = path.map(normalizeStep);
   const details: PathDetail[] = [];
   const accumulatedClues: string[] = [];
   const cardMap = new Map(cards.map((c) => [c.id, c]));
   const seenIds = new Map<string, number>();
 
-  path.forEach((cardId, idx) => {
-    const card = cardMap.get(cardId);
+  normalizedPath.forEach((step, idx) => {
+    const card = cardMap.get(step.cardId);
     if (!card) return;
 
-    const isLoopBack = seenIds.has(cardId);
-    const loopBackToStep = seenIds.get(cardId);
-    seenIds.set(cardId, idx);
+    const isLoopBack = seenIds.has(step.cardId);
+    const loopBackToStep = seenIds.get(step.cardId);
+    seenIds.set(step.cardId, idx);
 
     const firstAppearance: string[] = [];
     card.clueTags.forEach((t) => {
@@ -270,16 +300,23 @@ export function getPathDetails(
 
     let choiceText: string | undefined;
     let consequence: string | undefined;
-    let choiceId: string | undefined;
 
-    if (idx > 0) {
-      const prevCard = cardMap.get(path[idx - 1]);
+    if (idx > 0 && step.choiceId) {
+      const prevCard = cardMap.get(normalizedPath[idx - 1].cardId);
       if (prevCard) {
-        const chosen: Choice | undefined = prevCard.choices.find(
-          (ch) => ch.nextCardId === cardId,
+        const chosen = prevCard.choices.find((ch) => ch.id === step.choiceId);
+        if (chosen) {
+          choiceText = chosen.text;
+          consequence = chosen.consequence;
+        }
+      }
+    } else if (idx > 0 && !step.choiceId) {
+      const prevCard = cardMap.get(normalizedPath[idx - 1].cardId);
+      if (prevCard) {
+        const chosen = prevCard.choices.find(
+          (ch) => ch.nextCardId === step.cardId,
         );
         if (chosen) {
-          choiceId = chosen.id;
           choiceText = chosen.text;
           consequence = chosen.consequence;
         }
@@ -287,9 +324,9 @@ export function getPathDetails(
     }
 
     details.push({
-      cardId,
-      cardTitle: card.title || cardId,
-      choiceId,
+      cardId: step.cardId,
+      cardTitle: card.title || step.cardId,
+      choiceId: step.choiceId,
       choiceText,
       consequence,
       cluesAtThisStep: [...card.clueTags],
@@ -303,18 +340,18 @@ export function getPathDetails(
   return details;
 }
 
-export function getUniqueCluesForPath(path: string[], cards: StoryCard[]): string[] {
+export function getUniqueCluesForPath(path: PathStep[], cards: StoryCard[]): string[] {
   const clues = new Set<string>();
   const cardMap = new Map(cards.map((c) => [c.id, c]));
-  path.forEach((cid) => {
-    const c = cardMap.get(cid);
+  path.map(normalizeStep).forEach((s) => {
+    const c = cardMap.get(s.cardId);
     if (c) c.clueTags.forEach((t) => clues.add(t));
   });
   return Array.from(clues);
 }
 
 export function analyzePath(
-  path: string[],
+  path: PathStep[],
   cards: StoryCard[],
   details: PathDetail[],
 ): PathAnalysis {
@@ -389,22 +426,24 @@ export function analyzePath(
 }
 
 export function comparePaths(
-  path1: string[],
-  path2: string[],
+  path1: PathStep[],
+  path2: PathStep[],
   cards: StoryCard[],
   details1: PathDetail[],
   details2: PathDetail[],
 ): PathComparison {
+  const n1 = path1.map(normalizeStep);
+  const n2 = path2.map(normalizeStep);
   let sharedSteps = 0;
   let divergenceStep = -1;
   let divergenceCardTitle = "";
   const sharedCards: string[] = [];
 
-  const minLen = Math.min(path1.length, path2.length);
+  const minLen = Math.min(n1.length, n2.length);
   for (let i = 0; i < minLen; i++) {
-    if (path1[i] === path2[i]) {
+    if (n1[i].cardId === n2[i].cardId && n1[i].choiceId === n2[i].choiceId) {
       sharedSteps++;
-      sharedCards.push(path1[i]);
+      sharedCards.push(n1[i].cardId);
     } else {
       divergenceStep = i;
       divergenceCardTitle = i > 0 ? details1[i - 1]?.cardTitle || "" : "";
@@ -419,8 +458,54 @@ export function comparePaths(
     }
   }
 
-  const uniqueToPath1: string[] = path1.slice(divergenceStep);
-  const uniqueToPath2: string[] = path2.slice(divergenceStep);
+  const uniqueToPath1: string[] = n1.slice(divergenceStep).map((s) => s.cardId);
+  const uniqueToPath2: string[] = n2.slice(divergenceStep).map((s) => s.cardId);
+
+  const cardIds1 = n1.map((s) => s.cardId);
+  const cardIds2 = n2.map((s) => s.cardId);
+
+  const reconvergeIdx1 = uniqueToPath1.findIndex((cid) => cardIds2.includes(cid));
+  const reconvergeIdx2 = uniqueToPath2.findIndex((cid) => cardIds1.includes(cid));
+
+  const timeline: ComparisonTimeline = { segments: [] };
+
+  if (sharedSteps > 0) {
+    timeline.segments.push({
+      type: "shared",
+      label: `共同段：第 1-${sharedSteps} 步`,
+      startStep: 0,
+      endStep: sharedSteps - 1,
+      cards1: sharedCards,
+      cards2: sharedCards,
+    });
+  }
+
+  if (divergenceStep < n1.length || divergenceStep < n2.length) {
+    const divSeg: ComparisonTimeline["segments"][number] = {
+      type: "divergent",
+      label: `分歧段：第 ${divergenceStep + 1} 步起`,
+      startStep: divergenceStep,
+      endStep: Math.max(n1.length, n2.length) - 1,
+      cards1: uniqueToPath1,
+      cards2: uniqueToPath2,
+      choice1: details1[divergenceStep]?.choiceText || "（无）",
+      choice2: details2[divergenceStep]?.choiceText || "（无）",
+    };
+    timeline.segments.push(divSeg);
+  }
+
+  if (reconvergeIdx1 >= 0 || reconvergeIdx2 >= 0) {
+    const reconvergeCard = reconvergeIdx1 >= 0 ? uniqueToPath1[reconvergeIdx1] : uniqueToPath2[reconvergeIdx2];
+    const cardMap = new Map(cards.map((c) => [c.id, c]));
+    timeline.segments.push({
+      type: "reconverge",
+      label: `重新汇合：${cardMap.get(reconvergeCard)?.title || reconvergeCard}`,
+      startStep: divergenceStep + (reconvergeIdx1 >= 0 ? reconvergeIdx1 : reconvergeIdx2),
+      endStep: divergenceStep + (reconvergeIdx1 >= 0 ? reconvergeIdx1 : reconvergeIdx2),
+      cards1: [reconvergeCard],
+      cards2: [reconvergeCard],
+    });
+  }
 
   const clues1 = new Set(getUniqueCluesForPath(path1, cards));
   const clues2 = new Set(getUniqueCluesForPath(path2, cards));
@@ -457,17 +542,19 @@ export function comparePaths(
     uniqueToPath2Clues,
     choice1AtDivergence,
     choice2AtDivergence,
+    timeline,
   };
 }
 
 export function generatePathSummary(
-  path: string[],
+  path: PathStep[],
   cards: StoryCard[],
   details: PathDetail[],
   analysis: PathAnalysis,
 ): string {
+  const normalizedPath = path.map(normalizeStep);
   const ending = details[details.length - 1];
-  const endingCard = cards.find((c) => c.id === path[path.length - 1]);
+  const endingCard = cards.find((c) => c.id === normalizedPath[normalizedPath.length - 1]?.cardId);
   const steps: string[] = [];
 
   details.forEach((d, i) => {
@@ -508,8 +595,8 @@ export function generatePathSummary(
 }
 
 export function generatePathComparisonSummary(
-  path1: string[],
-  path2: string[],
+  path1: PathStep[],
+  path2: PathStep[],
   cards: StoryCard[],
   details1: PathDetail[],
   details2: PathDetail[],
@@ -529,7 +616,101 @@ export function generatePathComparisonSummary(
     .map((id) => cardMap.get(id)?.title || id)
     .join(" → ");
 
-  return `【路径对比】${ending1?.cardTitle} VS ${ending2?.cardTitle}\n\n一、共同点:\n  · 共享 ${comparison.sharedSteps} 个场景: ${sharedCardNames || "（无）"}\n  · 共享 ${comparison.sharedClues.length} 个线索: ${comparison.sharedClues.join("、") || "（无）"}\n\n二、分歧点:\n  · 第 ${comparison.divergenceStep + 1} 步在「${comparison.divergenceCardTitle}」处开始分歧\n  · 路线1选择: ${comparison.choice1AtDivergence}\n  · 路线2选择: ${comparison.choice2AtDivergence}\n\n三、分支走向差异:\n  · 路线1独有场景: ${unique1Names || "（无）"}\n  · 路线2独有场景: ${unique2Names || "（无）"}\n\n四、线索差异:\n  · 路线1独有线索 (${comparison.uniqueToPath1Clues.length}): ${comparison.uniqueToPath1Clues.join("、") || "（无）"}\n  · 路线2独有线索 (${comparison.uniqueToPath2Clues.length}): ${comparison.uniqueToPath2Clues.join("、") || "（无）"}\n\n五、课堂讲评建议:\n  · 这个分歧点是本课分支设计的典型例子，可以引导学生讨论"不同选择如何走向不同结局"\n  · 两条路线的线索差异可以用来讲解"选择性线索"和"公共线索"的设计区别`;
+  let timelineText = "";
+  if (comparison.timeline.segments.length > 0) {
+    timelineText = "\n\n六、课堂讲解时间线：\n" + comparison.timeline.segments.map((seg) => {
+      if (seg.type === "shared") {
+        return `  🟡 [共同段] ${seg.label}：${seg.cards1.map((id) => cardMap.get(id)?.title || id).join(" → ")}`;
+      } else if (seg.type === "divergent") {
+        return `  🔴 [分歧段] ${seg.label}\n    路线1选择「${seg.choice1}」→ ${seg.cards1.map((id) => cardMap.get(id)?.title || id).join(" → ")}\n    路线2选择「${seg.choice2}」→ ${seg.cards2.map((id) => cardMap.get(id)?.title || id).join(" → ")}`;
+      } else {
+        return `  🟢 [重新汇合] ${seg.label}`;
+      }
+    }).join("\n");
+  }
+
+  return `【路径对比】${ending1?.cardTitle} VS ${ending2?.cardTitle}\n\n一、共同点:\n  · 共享 ${comparison.sharedSteps} 个场景: ${sharedCardNames || "（无）"}\n  · 共享 ${comparison.sharedClues.length} 个线索: ${comparison.sharedClues.join("、") || "（无）"}\n\n二、分歧点:\n  · 第 ${comparison.divergenceStep + 1} 步在「${comparison.divergenceCardTitle}」处开始分歧\n  · 路线1选择: ${comparison.choice1AtDivergence}\n  · 路线2选择: ${comparison.choice2AtDivergence}\n\n三、分支走向差异:\n  · 路线1独有场景: ${unique1Names || "（无）"}\n  · 路线2独有场景: ${unique2Names || "（无）"}\n\n四、线索差异:\n  · 路线1独有线索 (${comparison.uniqueToPath1Clues.length}): ${comparison.uniqueToPath1Clues.join("、") || "（无）"}\n  · 路线2独有线索 (${comparison.uniqueToPath2Clues.length}): ${comparison.uniqueToPath2Clues.join("、") || "（无）"}\n\n五、课堂讲评建议:\n  · 这个分歧点是本课分支设计的典型例子，可以引导学生讨论"不同选择如何走向不同结局"\n  · 两条路线的线索差异可以用来讲解"选择性线索"和"公共线索"的设计区别${timelineText}`;
+}
+
+export function analyzeBranchDesign(
+  cards: StoryCard[],
+  testResult: TestResult | null,
+): BranchDesignSummary | null {
+  if (!testResult) return null;
+
+  const cardMap = new Map(cards.map((c) => [c.id, c]));
+  const reachableCards = cards.filter((c) => testResult[c.id]?.status !== "untriggered");
+
+  const divergencePoints = reachableCards.filter((c) => {
+    if (c.isEnding) return false;
+    const validChoices = c.choices.filter(
+      (ch) => ch.nextCardId && cardMap.has(ch.nextCardId),
+    );
+    return validChoices.length >= 2;
+  });
+
+  const convergenceCards: string[] = [];
+  const incomingEdges = new Map<string, number>();
+  cards.forEach((c) => {
+    c.choices.forEach((ch) => {
+      if (ch.nextCardId) {
+        incomingEdges.set(ch.nextCardId, (incomingEdges.get(ch.nextCardId) || 0) + 1);
+      }
+    });
+  });
+  incomingEdges.forEach((count, cardId) => {
+    if (count >= 2 && testResult[cardId]?.status !== "untriggered") {
+      convergenceCards.push(cardId);
+    }
+  });
+
+  const endingCards = cards.filter((c) => c.isEnding);
+  const endingTypes = { good: 0, bad: 0, neutral: 0 };
+  endingCards.forEach((c) => {
+    if (c.endingType === "good") endingTypes.good++;
+    else if (c.endingType === "bad") endingTypes.bad++;
+    else endingTypes.neutral++;
+  });
+
+  const totalPaths = endingCards
+    .map((c) => testResult[c.id]?.reachedPaths.length || 0)
+    .reduce((a, b) => a + b, 0);
+
+  const suggestions: string[] = [];
+  if (divergencePoints.length === 0) {
+    suggestions.push("目前没有任何分支点——故事是纯线性的，建议至少添加 1 个有意义的二选一");
+  } else if (divergencePoints.length === 1) {
+    suggestions.push("只有 1 个分支点，可以尝试在故事中段再增加一个选择，让玩家的决策更有层次");
+  }
+  if (convergenceCards.length === 0 && divergencePoints.length > 0) {
+    suggestions.push("所有分支都是完全独立的，没有汇合点。可以考虑让某些选择最终走向同一个中间场景，形成「殊途同归」的设计");
+  }
+  if (endingTypes.neutral > 0 && endingTypes.good === 0 && endingTypes.bad === 0) {
+    suggestions.push("所有结局都是中性结局，建议区分好/坏结局以增强玩家选择的代入感");
+  }
+  if (totalPaths <= 2 && divergencePoints.length >= 1) {
+    suggestions.push("路径总数偏少，可以考虑让分支点有更多选项或增加中间选择");
+  }
+
+  let assessment = "";
+  if (divergencePoints.length >= 3 && convergenceCards.length >= 1) {
+    assessment = "分支设计成熟度高，既有充分的决策点也有汇合重聚，故事结构丰富而不散乱";
+  } else if (divergencePoints.length >= 2) {
+    assessment = "分支设计基本成型，多个选择点让玩家有参与感，可考虑增加汇合点提升结构紧凑度";
+  } else if (divergencePoints.length === 1) {
+    assessment = "分支设计较为简单，只有一个决策点，故事基本是二选一结构";
+  } else {
+    assessment = "尚未建立分支结构，故事是纯线性叙事";
+  }
+
+  return {
+    divergencePoints: divergencePoints.length,
+    convergencePoints: convergenceCards.length,
+    endingTypes,
+    uniquePaths: totalPaths,
+    assessment,
+    suggestions,
+  };
 }
 
 export function generateOverallReviewDraft(
@@ -544,16 +725,17 @@ export function generateOverallReviewDraft(
       summary: "请先运行路线测试以生成总评草稿。",
       strengths: [],
       improvements: [],
+      branchDesign: null,
       fullText: "请先运行路线测试，系统将基于测试结果自动生成完整的总评草稿。",
     };
   }
 
   const values = Object.values(testResult);
   const total = values.length;
-  const triggered = values.filter((v) => v.status === "triggered").length;
   const untriggered = values.filter((v) => v.status === "untriggered").length;
   const deficient = values.filter((v) => v.status === "clue-deficient").length;
-  const coverage = total > 0 ? Math.round((triggered / total) * 100) : 0;
+  const reachable = total - untriggered;
+  const coverage = total > 0 ? Math.round((reachable / total) * 100) : 0;
 
   const endingCards = cards.filter((c) => c.isEnding);
   const goodEndings = endingCards.filter((c) => c.endingType === "good");
@@ -569,15 +751,8 @@ export function generateOverallReviewDraft(
     .map((c) => testResult[c.id]?.reachedPaths.length || 0)
     .reduce((a, b) => a + b, 0);
 
-  const allDetailsByEnding: { [endingId: string]: PathDetail[][] } = {};
-  endingCards.forEach((e) => {
-    allDetailsByEnding[e.id] = (testResult[e.id]?.reachedPaths || []).map((p) =>
-      getPathDetails(p, cards),
-    );
-  });
-
   const triggeredNonEnding = cards.filter(
-    (c) => !c.isEnding && testResult[c.id]?.status === "triggered",
+    (c) => !c.isEnding && testResult[c.id]?.status !== "untriggered",
   );
   const avgClues =
     triggeredNonEnding.length > 0
@@ -587,7 +762,7 @@ export function generateOverallReviewDraft(
 
   let summaryParts: string[] = [];
   summaryParts.push(`本次作业共 ${total} 张卡片，${endingCards.length} 个结局（${goodEndings.length} 好 / ${badEndings.length} 坏），完整剧情路径 ${totalPaths} 条。`);
-  summaryParts.push(`触发覆盖率 ${coverage}%（${triggered}/${total} 张卡片可到达）。`);
+  summaryParts.push(`触发覆盖率 ${coverage}%（${reachable}/${total} 张卡片可到达${deficient > 0 ? `，其中 ${deficient} 张线索不足` : ""}）。`);
 
   if (coverage === 100) {
     strengths.push("触发覆盖率 100%，所有设计的场景都能被玩家体验到，结构完整性很好");
@@ -609,7 +784,7 @@ export function generateOverallReviewDraft(
     strengths.push("所有结局的伏笔铺垫都达到了 2 个线索以上的要求，玩家走向结局时不会觉得突兀");
   } else if (deficientEndings.length > 0) {
     const names = deficientEndings.map((c) => `「${c.title}」`).join("、");
-    improvements.push(`${deficientEndings.length} 个结局线索不足：${names}。建议在通向这些结局的路径上至少提前 2 张卡片埋下相关线索`);
+    improvements.push(`${deficientEndings.length} 个结局线索不足：${names}。这些结局虽然玩家可以到达，但伏笔铺垫不够，建议在通向这些结局的路径上至少提前 2 张卡片埋下相关线索`);
   }
 
   if (deficientGoodEndings.length === 0 && goodEndings.length > 0) {
@@ -623,6 +798,7 @@ export function generateOverallReviewDraft(
   }
 
   const divergencePoints: { cardId: string; cardTitle: string; count: number }[] = [];
+  const cardMap = new Map(cards.map((c) => [c.id, c]));
   triggeredNonEnding.forEach((c) => {
     const validChoices = c.choices.filter(
       (ch) => ch.nextCardId && cards.some((x) => x.id === ch.nextCardId),
@@ -647,18 +823,20 @@ export function generateOverallReviewDraft(
     );
   }
 
-  const hasEndingWeakness = Object.entries(allDetailsByEnding).some(([_, allDetails]) =>
-    allDetails.some((details) => {
-      const a = analyzePath([], cards, details);
-      return a.hasEndingDrySpell;
-    }),
-  );
+  const allPaths = endingCards.flatMap((e) => testResult[e.id]?.reachedPaths || []);
+  const hasEndingWeakness = allPaths.some((p) => {
+    const details = getPathDetails(p, cards);
+    const a = analyzePath(p, cards, details);
+    return a.hasEndingDrySpell;
+  });
 
   if (hasEndingWeakness) {
     improvements.push(
       "部分结局的末尾几步存在「空转」现象——连续多步没有新线索出现。建议在接近结局时保持一定的线索密度，让玩家走向结局时仍有紧张感和预期",
     );
   }
+
+  const branchDesign = analyzeBranchDesign(cards, testResult);
 
   const summary = summaryParts.join(" ");
 
@@ -684,8 +862,25 @@ export function generateOverallReviewDraft(
   } else {
     fullTextParts.push("  整体完成度不错，可以考虑进一步挑战更复杂的分支结构和线索设计。");
   }
+
+  if (branchDesign) {
+    fullTextParts.push("");
+    fullTextParts.push("三、分支设计评价：");
+    fullTextParts.push(`  · 分支点: ${branchDesign.divergencePoints} 个`);
+    fullTextParts.push(`  · 汇合点: ${branchDesign.convergencePoints} 个`);
+    fullTextParts.push(`  · 独立路径: ${branchDesign.uniquePaths} 条`);
+    fullTextParts.push(`  · 结局分布: ${branchDesign.endingTypes.good} 好 / ${branchDesign.endingTypes.bad} 坏 / ${branchDesign.endingTypes.neutral} 中性`);
+    fullTextParts.push(`  · 总评: ${branchDesign.assessment}`);
+    if (branchDesign.suggestions.length > 0) {
+      fullTextParts.push("  · 改进建议:");
+      branchDesign.suggestions.forEach((s) => {
+        fullTextParts.push(`    - ${s}`);
+      });
+    }
+  }
+
   fullTextParts.push("");
-  fullTextParts.push("三、课堂讨论建议：");
+  fullTextParts.push("四、课堂讨论建议：");
   if (divergencePoints.length > 0) {
     fullTextParts.push(
       `  · 可以围绕「${divergencePoints[0].cardTitle}」这个分支点展开讨论：不同选择带来的代价是什么？玩家是否能预见到后果？`,
@@ -698,7 +893,7 @@ export function generateOverallReviewDraft(
   }
   if (deficientEndings.length > 0) {
     fullTextParts.push(
-      `  · 请同学上台为 ${deficientEndings[0].title} 这个结局添加两个合理的线索，现场演示如何让伏笔更自然`,
+      `  · 请同学上台为「${deficientEndings[0].title}」这个结局添加两个合理的线索，现场演示如何让伏笔更自然`,
     );
   }
 
@@ -706,6 +901,7 @@ export function generateOverallReviewDraft(
     summary,
     strengths,
     improvements,
+    branchDesign,
     fullText: fullTextParts.join("\n"),
   };
 }
@@ -728,6 +924,8 @@ export function generateReviewHints(
   const values = Object.values(testResult);
   const total = values.length;
   const untriggered = values.filter((v) => v.status === "untriggered").length;
+  const reachable = total - untriggered;
+  const coverage = total > 0 ? Math.round((reachable / total) * 100) : 0;
   const endingCards = cards.filter((c) => c.isEnding);
   const deficientEndings = endingCards.filter(
     (c) => testResult[c.id]?.status === "clue-deficient",
@@ -741,7 +939,7 @@ export function generateReviewHints(
     (c) => testResult[c.id]?.status === "clue-deficient",
   );
   const triggeredCards = cards.filter(
-    (c) => !c.isEnding && testResult[c.id]?.status === "triggered",
+    (c) => !c.isEnding && testResult[c.id]?.status !== "untriggered",
   );
   const avgCluesPerCard =
     triggeredCards.length > 0
@@ -772,7 +970,7 @@ export function generateReviewHints(
   } else if (untriggered === 0 && total > 0) {
     hints.push({
       type: "success",
-      title: "所有卡片均已触发 ✓",
+      title: "所有卡片均可到达 ✓",
       detail: "每张卡片都至少有一条路径可以到达，结构完整性很好",
       suggestedText: "触发覆盖率做得非常好，所有设计的场景都能被玩家体验到，这体现了故事结构的完整性。",
       affectsScore: { ruleStability: 1, costClarity: 0 },
@@ -793,9 +991,9 @@ export function generateReviewHints(
     const names = deficientEndings.map((c) => `「${c.title}」`).join("、");
     hints.push({
       type: "warning",
-      title: `${deficientEndings.length} 个结局线索不足`,
-      detail: `这些结局的所有路径累计线索均少于 2 个：${names}`,
-      suggestedText: `${names} 这${deficientEndings.length > 1 ? "些" : "个"}结局的伏笔铺垫明显不够。玩家走到结局时会觉得突兀，缺乏「原来如此」的恍然大悟感。建议在通向这些结局的路径上，至少提前 2 张卡片埋下相关线索标签（如物品、异象、对话暗示等），让玩家在二刷时能呼应上。`,
+      title: `${deficientEndings.length} 个结局线索不足（可到达但伏笔不够）`,
+      detail: `这些结局玩家可以走到，但所有路径累计线索均少于 2 个：${names}`,
+      suggestedText: `${names} 这${deficientEndings.length > 1 ? "些" : "个"}结局虽然玩家能到达，但伏笔铺垫不够。玩家走到结局时会觉得突兀，缺乏「原来如此」的恍然大悟感。建议在通向这些结局的路径上，至少提前 2 张卡片埋下相关线索标签（如物品、异象、对话暗示等），让玩家在二刷时能呼应上。`,
       affectsScore: { foreshadowing: -2 },
     });
   }

@@ -24,6 +24,8 @@ import {
   ArrowLeftRight,
   Zap,
   Flag,
+  Merge,
+  GitCommit,
 } from "lucide-react";
 import { useStoryStore } from "../store/useStoryStore";
 import {
@@ -39,16 +41,17 @@ import {
   type PathDetail,
   type PathAnalysis,
   type PathComparison,
+  type ComparisonTimeline,
 } from "../utils/storyEngine";
 import { cn } from "../lib/utils";
-import type { StoryCard } from "../types";
+import type { StoryCard, PathStep } from "../types";
 
 function PathChainView({
   path,
   cards,
   ending,
 }: {
-  path: string[];
+  path: PathStep[];
   cards: StoryCard[];
   ending: StoryCard;
 }) {
@@ -103,7 +106,7 @@ function PathChainView({
 
       <div className="space-y-2">
         {details.map((step, idx) => (
-          <div key={idx} className="relative pl-5">
+          <div key={`${step.cardId}-${step.choiceId || "none"}-${idx}`} className="relative pl-5">
             {idx < details.length - 1 && (
               <div
                 className={cn(
@@ -314,14 +317,112 @@ function PathChainView({
   );
 }
 
+function ComparisonTimelineView({
+  timeline,
+  cards,
+}: {
+  timeline: ComparisonTimeline;
+  cards: StoryCard[];
+}) {
+  const cardMap = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
+
+  if (timeline.segments.length === 0) return null;
+
+  return (
+    <div className="p-2.5 rounded bg-horror-bg/50 border border-horror-border/50">
+      <div className="flex items-center gap-1.5 text-xs mb-2">
+        <GitCommit className="w-3.5 h-3.5 text-horror-warning" />
+        <span className="font-medium text-horror-warning">课堂讲解时间线</span>
+      </div>
+      <div className="space-y-2">
+        {timeline.segments.map((seg, i) => {
+          if (seg.type === "shared") {
+            return (
+              <div key={i} className="flex items-start gap-2">
+                <div className="mt-1 w-5 h-5 rounded-full bg-horror-warning/20 border border-horror-warning/40 flex items-center justify-center flex-shrink-0">
+                  <span className="text-[9px] text-horror-warning font-bold">同</span>
+                </div>
+                <div>
+                  <div className="text-[10px] text-horror-warning font-medium">{seg.label}</div>
+                  <div className="text-[10px] text-horror-text flex flex-wrap items-center gap-0.5">
+                    {seg.cards1.map((id, j) => (
+                      <span key={j} className="flex items-center gap-0.5">
+                        <span className="px-1 py-0 rounded bg-horror-warning/10 text-horror-warning text-[9px]">
+                          {cardMap.get(id)?.title || id}
+                        </span>
+                        {j < seg.cards1.length - 1 && <ChevronRight className="w-2 h-2 text-horror-muted" />}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          } else if (seg.type === "divergent") {
+            return (
+              <div key={i} className="flex items-start gap-2">
+                <div className="mt-1 w-5 h-5 rounded-full bg-horror-deficient/20 border border-horror-deficient/40 flex items-center justify-center flex-shrink-0">
+                  <span className="text-[9px] text-horror-bloodLight font-bold">分</span>
+                </div>
+                <div className="flex-1">
+                  <div className="text-[10px] text-horror-bloodLight font-medium">{seg.label}</div>
+                  <div className="grid grid-cols-2 gap-1.5 mt-1">
+                    <div className="p-1.5 rounded bg-horror-blood/10 border border-horror-blood/20">
+                      <div className="text-[9px] text-horror-bloodLight font-medium">
+                        选择「{seg.choice1}」
+                      </div>
+                      <div className="text-[9px] text-horror-muted flex flex-wrap items-center gap-0.5 mt-0.5">
+                        {seg.cards1.map((id, j) => (
+                          <span key={j} className="flex items-center gap-0.5">
+                            <span>{cardMap.get(id)?.title || id}</span>
+                            {j < seg.cards1.length - 1 && <ChevronRight className="w-2 h-2" />}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="p-1.5 rounded bg-horror-trigger/10 border border-horror-trigger/20">
+                      <div className="text-[9px] text-horror-triggerLight font-medium">
+                        选择「{seg.choice2}」
+                      </div>
+                      <div className="text-[9px] text-horror-muted flex flex-wrap items-center gap-0.5 mt-0.5">
+                        {seg.cards2.map((id, j) => (
+                          <span key={j} className="flex items-center gap-0.5">
+                            <span>{cardMap.get(id)?.title || id}</span>
+                            {j < seg.cards2.length - 1 && <ChevronRight className="w-2 h-2" />}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          } else {
+            return (
+              <div key={i} className="flex items-start gap-2">
+                <div className="mt-1 w-5 h-5 rounded-full bg-horror-trigger/20 border border-horror-trigger/40 flex items-center justify-center flex-shrink-0">
+                  <Merge className="w-2.5 h-2.5 text-horror-triggerLight" />
+                </div>
+                <div>
+                  <div className="text-[10px] text-horror-triggerLight font-medium">{seg.label}</div>
+                  <div className="text-[9px] text-horror-muted">两条路线在此处重新汇合到同一场景</div>
+                </div>
+              </div>
+            );
+          }
+        })}
+      </div>
+    </div>
+  );
+}
+
 function PathComparisonView({
   path1,
   path2,
   cards,
   onClose,
 }: {
-  path1: { ending: StoryCard; path: string[]; key: string };
-  path2: { ending: StoryCard; path: string[]; key: string };
+  path1: { ending: StoryCard; path: PathStep[]; key: string };
+  path2: { ending: StoryCard; path: PathStep[]; key: string };
   cards: StoryCard[];
   onClose: () => void;
 }) {
@@ -450,6 +551,8 @@ function PathComparisonView({
         </div>
       </div>
 
+      <ComparisonTimelineView timeline={comparison.timeline} cards={cards} />
+
       <div className="space-y-2">
         {sharedNames.length > 0 && (
           <div>
@@ -554,11 +657,15 @@ export default function RouteTestPanel() {
   const stats = useMemo(() => {
     if (!testResult) return null;
     const values = Object.values(testResult);
+    const untriggered = values.filter((v) => v.status === "untriggered").length;
+    const deficient = values.filter((v) => v.status === "clue-deficient").length;
+    const reachable = values.length - untriggered;
     return {
-      triggered: values.filter((v) => v.status === "triggered").length,
-      untriggered: values.filter((v) => v.status === "untriggered").length,
-      deficient: values.filter((v) => v.status === "clue-deficient").length,
+      reachable,
+      untriggered,
+      deficient,
       total: values.length,
+      coverage: values.length > 0 ? Math.round((reachable / values.length) * 100) : 0,
       paths: endingCards
         .map((c) => testResult[c.id]?.reachedPaths.length || 0)
         .reduce((a, b) => a + b, 0),
@@ -580,26 +687,47 @@ export default function RouteTestPanel() {
     setSelectedForCompare([]);
   };
 
+  function normalizeStep(step: PathStep | string): PathStep {
+    if (typeof step === "string") {
+      return { cardId: step };
+    }
+    return step;
+  }
+
   const allPaths = useMemo(() => {
     if (!testResult) return [];
     const paths: {
       key: string;
       ending: StoryCard;
-      path: string[];
+      path: PathStep[];
       clues: number;
       hasLoop: boolean;
+      choiceLabel: string;
     }[] = [];
+    const cardMap = new Map(cards.map((c) => [c.id, c]));
     endingCards.forEach((ending) => {
-      const pathsToEnding = testResult[ending.id]?.reachedPaths || [];
-      pathsToEnding.forEach((p, pIdx) => {
+      const rawPaths = testResult[ending.id]?.reachedPaths || [];
+      rawPaths.forEach((rawP, pIdx) => {
+        const p: PathStep[] = rawP.map(normalizeStep);
         const uniqueClues = new Set<string>();
         const seenIds = new Set<string>();
         let hasLoop = false;
-        p.forEach((cid) => {
-          const c = cards.find((card) => card.id === cid);
+        const choiceLabels: string[] = [];
+        p.forEach((step) => {
+          const c = cardMap.get(step.cardId);
           if (c) c.clueTags.forEach((t) => uniqueClues.add(t));
-          if (seenIds.has(cid)) hasLoop = true;
-          seenIds.add(cid);
+          if (seenIds.has(step.cardId)) hasLoop = true;
+          seenIds.add(step.cardId);
+          if (step.choiceId && c) {
+            const stepIdx = p.findIndex((s) => s.cardId === step.cardId);
+            if (stepIdx > 0) {
+              const prevCard = cardMap.get(p[stepIdx - 1].cardId);
+              if (prevCard) {
+                const ch = prevCard.choices.find((c2) => c2.id === step.choiceId);
+                if (ch) choiceLabels.push(ch.text);
+              }
+            }
+          }
         });
         paths.push({
           key: `${ending.id}-${pIdx}`,
@@ -607,6 +735,7 @@ export default function RouteTestPanel() {
           path: p,
           clues: uniqueClues.size,
           hasLoop,
+          choiceLabel: choiceLabels.join(" → ") || ending.title,
         });
       });
     });
@@ -711,13 +840,19 @@ export default function RouteTestPanel() {
             <div className="p-3 rounded bg-horror-card border border-horror-border">
               <div className="text-xs text-horror-muted mb-1">触发覆盖率</div>
               <div className="text-2xl font-display font-bold text-horror-triggerLight">
-                {stats.triggered}
-                <span className="text-sm text-horror-muted font-normal"> / {stats.total}</span>
+                {stats.coverage}
+                <span className="text-sm text-horror-muted font-normal">%</span>
+              </div>
+              <div className="text-[10px] text-horror-muted mt-0.5">
+                {stats.reachable} / {stats.total} 张可到达
+                {stats.deficient > 0 && (
+                  <span className="text-horror-bloodLight">（含 {stats.deficient} 张线索不足）</span>
+                )}
               </div>
               <div className="h-1.5 mt-2 rounded-full bg-horror-bg overflow-hidden">
                 <div
                   className="h-full bg-horror-trigger transition-all duration-500"
-                  style={{ width: `${(stats.triggered / stats.total) * 100}%` }}
+                  style={{ width: `${stats.coverage}%` }}
                 />
               </div>
             </div>
@@ -731,7 +866,7 @@ export default function RouteTestPanel() {
                 {stats.untriggered > 0 && (
                   <span className="flex items-center gap-1 text-horror-muted">
                     <XCircle className="w-3 h-3" />
-                    {stats.untriggered} 未触发
+                    {stats.untriggered} 不可达
                   </span>
                 )}
                 {stats.deficient > 0 && (
@@ -776,7 +911,7 @@ export default function RouteTestPanel() {
                   style={{ backgroundColor: getStatusColor("clue-deficient") }}
                 />
                 <span className="text-horror-muted">
-                  {getStatusLabel("clue-deficient")} — 所有到达路径线索均少于 2 个
+                  {getStatusLabel("clue-deficient")} — 可到达但所有路径线索均少于 2 个
                 </span>
               </div>
             </div>
@@ -865,12 +1000,24 @@ export default function RouteTestPanel() {
                         </span>
                       </div>
                       <div className="flex flex-wrap items-center gap-1 text-xs ml-5">
-                        {item.path.map((cid, i) => {
-                          const c = cards.find((card) => card.id === cid);
+                        {item.path.map((step, i) => {
+                          const c = cards.find((card) => card.id === step.cardId);
                           const isRepeat =
-                            i > 0 && item.path.slice(0, i).includes(cid);
+                            i > 0 && item.path.slice(0, i).some((s) => s.cardId === step.cardId);
+                          const showChoice = step.choiceId && i > 0;
                           return (
-                            <span key={`${cid}-${i}`} className="flex items-center gap-1">
+                            <span key={`${step.cardId}-${step.choiceId || "no"}-${i}`} className="flex items-center gap-1">
+                              {showChoice && (
+                                <span className="text-[9px] px-1 py-0 rounded bg-horror-blood/15 text-horror-bloodLight">
+                                  {(() => {
+                                    if (i === 0) return "";
+                                    const prevCard = cards.find((card) => card.id === item.path[i - 1].cardId);
+                                    if (!prevCard) return "";
+                                    const ch = prevCard.choices.find((c2) => c2.id === step.choiceId);
+                                    return ch ? (ch.text.length > 4 ? ch.text.slice(0, 4) + "…" : ch.text) : "";
+                                  })()}
+                                </span>
+                              )}
                               <span
                                 className={cn(
                                   "px-1.5 py-0.5 rounded",
@@ -879,15 +1026,15 @@ export default function RouteTestPanel() {
                                     : "",
                                 )}
                                 style={
-                                  !isRepeat && testResult?.[cid]
+                                  !isRepeat && testResult?.[step.cardId]
                                     ? {
-                                        backgroundColor: `${getStatusColor(testResult[cid].status)}20`,
-                                        color: getStatusColor(testResult[cid].status),
+                                        backgroundColor: `${getStatusColor(testResult[step.cardId].status)}20`,
+                                        color: getStatusColor(testResult[step.cardId].status),
                                       }
                                     : undefined
                                 }
                               >
-                                {c?.title || cid}
+                                {c?.title || step.cardId}
                                 {isRepeat && " 🔄"}
                               </span>
                               {i < item.path.length - 1 && (

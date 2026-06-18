@@ -23,10 +23,15 @@ export type StoryCard = {
 
 export type CardTriggerStatus = "triggered" | "untriggered" | "clue-deficient";
 
+export type PathStep = {
+  cardId: string;
+  choiceId?: string;
+};
+
 export type TestResult = {
   [cardId: string]: {
     status: CardTriggerStatus;
-    reachedPaths: string[][];
+    reachedPaths: PathStep[][];
   };
 };
 
