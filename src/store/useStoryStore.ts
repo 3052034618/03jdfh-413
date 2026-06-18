@@ -12,6 +12,8 @@ type StoreState = {
   addCard: (card?: Partial<StoryCard>) => void;
   updateCard: (id: string, updates: Partial<StoryCard>) => void;
   deleteCard: (id: string) => void;
+  duplicateCard: (id: string) => void;
+  duplicateBranch: (id: string) => void;
   addChoice: (cardId: string) => void;
   updateChoice: (cardId: string, choiceId: string, updates: Partial<Choice>) => void;
   deleteChoice: (cardId: string, choiceId: string) => void;
@@ -34,6 +36,47 @@ const createEmptyCard = (order: number, isOpening = false): StoryCard => ({
   order,
   choices: [],
 });
+
+function cloneCardWithNewId(
+  card: StoryCard,
+  idMap: Map<string, string>,
+  newOrder: number,
+): StoryCard {
+  const newId = generateId();
+  idMap.set(card.id, newId);
+  return {
+    ...card,
+    id: newId,
+    isOpening: false,
+    title: card.title ? `${card.title} (副本)` : "新场景卡片",
+    order: newOrder,
+    choices: card.choices.map((ch) => ({
+      ...ch,
+      id: generateId(),
+      cardId: newId,
+    })),
+  };
+}
+
+function collectBranchIds(cardId: string, cards: StoryCard[]): string[] {
+  const cardMap = new Map(cards.map((c) => [c.id, c]));
+  const collected: string[] = [];
+  const visited = new Set<string>();
+
+  function walk(id: string) {
+    if (visited.has(id)) return;
+    visited.add(id);
+    const card = cardMap.get(id);
+    if (!card) return;
+    collected.push(id);
+    card.choices.forEach((ch) => {
+      if (ch.nextCardId) walk(ch.nextCardId);
+    });
+  }
+
+  walk(cardId);
+  return collected;
+}
 
 export const useStoryStore = create<StoreState>()(
   persist(
@@ -74,6 +117,51 @@ export const useStoryStore = create<StoreState>()(
             })),
           }));
           return { cards: updatedCards };
+        }),
+
+      duplicateCard: (id) =>
+        set((state) => {
+          const original = state.cards.find((c) => c.id === id);
+          if (!original) return state;
+
+          const idMap = new Map<string, string>();
+          const cloned = cloneCardWithNewId(original, idMap, state.cards.length);
+          cloned.choices = original.choices.map((ch) => ({
+            ...ch,
+            id: generateId(),
+            cardId: cloned.id,
+          }));
+
+          return { cards: [...state.cards, cloned] };
+        }),
+
+      duplicateBranch: (id) =>
+        set((state) => {
+          const branchIds = collectBranchIds(id, state.cards);
+          if (branchIds.length === 0) return state;
+
+          const idMap = new Map<string, string>();
+          const cardMap = new Map(state.cards.map((c) => [c.id, c]));
+
+          const clonedCards: StoryCard[] = [];
+          let orderOffset = state.cards.length;
+
+          branchIds.forEach((bid) => {
+            const original = cardMap.get(bid);
+            if (!original) return;
+            const cloned = cloneCardWithNewId(original, idMap, orderOffset);
+            orderOffset++;
+            clonedCards.push(cloned);
+          });
+
+          clonedCards.forEach((cloned) => {
+            cloned.choices = cloned.choices.map((ch) => ({
+              ...ch,
+              nextCardId: idMap.get(ch.nextCardId) || ch.nextCardId,
+            }));
+          });
+
+          return { cards: [...state.cards, ...clonedCards] };
         }),
 
       addChoice: (cardId) =>

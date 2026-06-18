@@ -11,6 +11,8 @@ import {
   Tag,
   ArrowRight,
   Play,
+  Copy,
+  GitBranch,
 } from "lucide-react";
 import { useStoryStore } from "../store/useStoryStore";
 import { getStatusStyle, getStatusLabel, getStatusColor } from "../utils/storyEngine";
@@ -23,6 +25,8 @@ function CardItem({ card }: { card: StoryCard }) {
     cards,
     updateCard,
     deleteCard,
+    duplicateCard,
+    duplicateBranch,
     addChoice,
     updateChoice,
     deleteChoice,
@@ -74,7 +78,7 @@ function CardItem({ card }: { card: StoryCard }) {
             {card.title || "未命名卡片"}
           </span>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-1 flex-shrink-0">
           {status && (
             <span
               className="text-xs px-2 py-0.5 rounded"
@@ -86,6 +90,49 @@ function CardItem({ card }: { card: StoryCard }) {
               {getStatusLabel(status)}
             </span>
           )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              duplicateCard(card.id);
+            }}
+            title="复制此卡片"
+            className="p-1 rounded hover:bg-horror-panel text-horror-muted hover:text-horror-text transition-colors"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const count = (() => {
+                const cardMap = new Map(cards.map((c) => [c.id, c]));
+                const collected = new Set<string>();
+                function walk(id: string) {
+                  if (collected.has(id)) return;
+                  collected.add(id);
+                  const c = cardMap.get(id);
+                  if (!c) return;
+                  c.choices.forEach((ch) => {
+                    if (ch.nextCardId) walk(ch.nextCardId);
+                  });
+                }
+                walk(card.id);
+                return collected.size;
+              })();
+              if (
+                confirm(
+                  count > 1
+                    ? `将复制此卡片及其后续 ${count - 1} 张卡片（共 ${count} 张），确定吗？`
+                    : "确定复制这张卡片吗？",
+                )
+              ) {
+                duplicateBranch(card.id);
+              }
+            }}
+            title="复制此分支（含所有后续卡片）"
+            className="p-1 rounded hover:bg-horror-panel text-horror-muted hover:text-horror-text transition-colors"
+          >
+            <GitBranch className="w-3.5 h-3.5" />
+          </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -111,7 +158,7 @@ function CardItem({ card }: { card: StoryCard }) {
                 placeholder="如：午夜宿舍"
               />
             </div>
-            <div className="flex items-end gap-2">
+            <div className="flex items-end gap-2 flex-wrap">
               <label className="flex items-center gap-1.5 text-xs text-horror-text cursor-pointer">
                 <input
                   type="checkbox"
@@ -197,7 +244,7 @@ function CardItem({ card }: { card: StoryCard }) {
           <div>
             <label className="text-xs text-horror-muted mb-1 flex items-center gap-1">
               <Tag className="w-3 h-3" />
-              线索标签（用逗号分隔，至少2个线索才能支撑好结局）
+              线索标签（用逗号分隔，好结局建议路径累计≥2个线索）
             </label>
             <input
               type="text"
@@ -322,7 +369,7 @@ export default function StoryCardsPanel() {
         </span>
       </div>
 
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-horror-border/50">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-horror-border/50 flex-wrap">
         <button onClick={() => addCard()} className="horror-btn-primary flex items-center gap-1.5">
           <Plus className="w-4 h-4" />
           新增卡片
@@ -330,7 +377,15 @@ export default function StoryCardsPanel() {
         <button onClick={resetToSample} className="horror-btn text-xs">
           重置示例
         </button>
-        <button onClick={clearAll} className="horror-btn text-xs ml-auto">
+        <div className="ml-auto flex items-center gap-2 text-[10px] text-horror-muted">
+          <span className="flex items-center gap-0.5">
+            <Copy className="w-3 h-3" /> 复制单卡
+          </span>
+          <span className="flex items-center gap-0.5">
+            <GitBranch className="w-3 h-3" /> 复制分支
+          </span>
+        </div>
+        <button onClick={clearAll} className="horror-btn text-xs">
           清空所有
         </button>
       </div>

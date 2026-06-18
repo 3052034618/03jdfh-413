@@ -1,6 +1,21 @@
-import { useState } from "react";
-import { MessageSquare, Star, Save, Trash2, Clock, BookOpen, AlertCircle, Sparkles } from "lucide-react";
+import { useState, useMemo } from "react";
+import {
+  MessageSquare,
+  Star,
+  Save,
+  Trash2,
+  Clock,
+  BookOpen,
+  AlertCircle,
+  Sparkles,
+  AlertTriangle,
+  CheckCircle2,
+  Info,
+  Wand2,
+  ChevronRight,
+} from "lucide-react";
 import { useStoryStore } from "../store/useStoryStore";
+import { generateReviewHints, type ReviewHint } from "../utils/storyEngine";
 import { cn } from "../lib/utils";
 
 type CriterionKey = "ruleStability" | "costClarity" | "foreshadowing";
@@ -85,16 +100,76 @@ function StarRating({
   );
 }
 
+function HintCard({
+  hint,
+  onApply,
+}: {
+  hint: ReviewHint;
+  onApply: () => void;
+}) {
+  const icon =
+    hint.type === "warning" ? (
+      <AlertTriangle className="w-4 h-4 text-horror-bloodLight" />
+    ) : hint.type === "success" ? (
+      <CheckCircle2 className="w-4 h-4 text-horror-triggerLight" />
+    ) : (
+      <Info className="w-4 h-4 text-horror-warning" />
+    );
+
+  const borderColor =
+    hint.type === "warning"
+      ? "border-horror-deficient/50 bg-horror-deficient/10"
+      : hint.type === "success"
+      ? "border-horror-trigger/30 bg-horror-trigger/10"
+      : "border-horror-warning/30 bg-horror-warning/10";
+
+  return (
+    <div className={cn("p-2.5 rounded border", borderColor)}>
+      <div className="flex items-start gap-2">
+        <div className="mt-0.5 flex-shrink-0">{icon}</div>
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-medium text-horror-text">{hint.title}</div>
+          <div className="text-[11px] text-horror-muted mt-0.5">{hint.detail}</div>
+          <button
+            onClick={onApply}
+            className="mt-1.5 text-[11px] flex items-center gap-1 text-horror-bloodLight hover:text-horror-blood transition-colors"
+          >
+            <Wand2 className="w-3 h-3" />
+            带入评语
+            <ChevronRight className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ReviewPanel() {
-  const { review, setReview, clearReview } = useStoryStore();
+  const { cards, testResult, review, setReview, clearReview } = useStoryStore();
   const [saved, setSaved] = useState(false);
 
+  const hints = useMemo(
+    () => generateReviewHints(cards, testResult),
+    [cards, testResult],
+  );
+
   const handleSave = () => {
-    if (review) {
+    if (review || hints.length > 0) {
       setReview({ createdAt: new Date().toISOString() });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     }
+  };
+
+  const applyHint = (hint: ReviewHint) => {
+    const currentComment = review?.comment || "";
+    const prefix = currentComment ? `${currentComment}\n\n` : "";
+    setReview({ comment: `${prefix}${hint.suggestedText}` });
+  };
+
+  const applyAllHints = () => {
+    const text = hints.map((h, i) => `${i + 1}. ${h.suggestedText}`).join("\n\n");
+    setReview({ comment: text });
   };
 
   const totalScore = review
@@ -127,6 +202,44 @@ export default function ReviewPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {hints.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Wand2 className="w-4 h-4 text-horror-bloodLight" />
+                <span className="text-sm font-medium">AI 点评提示</span>
+                <span className="text-[10px] text-horror-muted">
+                  基于路线测试结果自动生成
+                </span>
+              </div>
+              {hints.length > 1 && (
+                <button
+                  onClick={applyAllHints}
+                  className="text-[11px] px-2 py-0.5 rounded border border-horror-blood/40 text-horror-bloodLight hover:bg-horror-blood/10 transition-colors flex items-center gap-1"
+                >
+                  <Wand2 className="w-3 h-3" />
+                  全部带入
+                </button>
+              )}
+            </div>
+            <div className="space-y-2">
+              {hints.map((h, i) => (
+                <HintCard key={i} hint={h} onApply={() => applyHint(h)} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!testResult && hints.length === 0 && (
+          <div className="p-3 rounded bg-horror-card border border-horror-border/60 text-xs text-horror-muted">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Info className="w-3.5 h-3.5 text-horror-warning" />
+              <span className="text-horror-warning">小提示</span>
+            </div>
+            先在中间栏运行路线测试，这里会根据测试结果自动生成点评建议。
+          </div>
+        )}
+
         {review && (
           <div className="p-4 rounded bg-gradient-to-br from-horror-card to-horror-bg border border-horror-border">
             <div className="text-xs text-horror-muted mb-1">综合评分</div>
@@ -179,11 +292,11 @@ export default function ReviewPanel() {
           <textarea
             value={defaultReview.comment}
             onChange={(e) => setReview({ comment: e.target.value })}
-            className="horror-input resize-none h-36"
-            placeholder="请从规则设定、玩家体验、叙事技巧等方面给出简短评语，指出优点和改进建议..."
+            className="horror-input resize-none h-40"
+            placeholder="请从规则设定、玩家体验、叙事技巧等方面给出简短评语，指出优点和改进建议...（可使用上方AI提示一键带入）"
           />
           <p className="text-xs text-horror-muted mt-1.5">
-            {defaultReview.comment.length} / 500 字
+            {defaultReview.comment.length} / 800 字
           </p>
         </div>
       </div>
