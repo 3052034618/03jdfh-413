@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "Noto Sans SC", "Inter", sans-serif;
+  line-height: 1.6;
+  font-weight: 400;
+  color: #d4d4dc;
+  background: #0d0d14;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(ellipse at top, #1a1a2e 0%, #0d0d14 60%);
+  background-attachment: fixed;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  opacity: 0.4;
+  z-index: 0;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #16161f;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a3a4a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #8b0000;
+}
+
+@layer components {
+  .horror-input {
+    @apply w-full bg-horror-panel border border-horror-border rounded px-3 py-2 text-sm text-horror-text placeholder-horror-muted focus:outline-none focus:border-horror-blood transition-colors;
+  }
+
+  .horror-btn {
+    @apply px-4 py-2 rounded font-medium text-sm transition-all duration-200 border border-horror-border bg-horror-card text-horror-text hover:bg-horror-panel hover:border-horror-blood hover:text-white;
+  }
+
+  .horror-btn-primary {
+    @apply px-4 py-2 rounded font-medium text-sm transition-all duration-200 border border-horror-blood bg-horror-blood/20 text-horror-bloodLight hover:bg-horror-blood hover:text-white hover:shadow-glow;
+  }
+
+  .horror-btn-danger {
+    @apply px-3 py-1 rounded text-xs transition-all duration-200 border border-horror-deficient/50 bg-horror-deficient/10 text-horror-bloodLight hover:bg-horror-deficient hover:text-white;
+  }
+
+  .panel-container {
+    @apply relative bg-horror-panel border border-horror-border rounded-lg shadow-horror overflow-hidden;
+  }
+
+  .panel-header {
+    @apply flex items-center gap-2 px-4 py-3 border-b border-horror-border bg-gradient-to-r from-horror-card to-transparent;
+  }
+
+  .status-triggered {
+    @apply bg-horror-trigger/30 border-horror-trigger;
+  }
+
+  .status-untriggered {
+    @apply bg-horror-untriggered/30 border-horror-untriggered;
+  }
+
+  .status-deficient {
+    @apply bg-horror-deficient/30 border-horror-deficient animate-pulse-slow;
+  }
+}
