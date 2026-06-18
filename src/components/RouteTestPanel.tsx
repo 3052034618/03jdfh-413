@@ -14,6 +14,11 @@ import {
   Tag,
   Eye,
   Sparkles,
+  Copy,
+  Check,
+  RotateCcw,
+  AlertCircle,
+  Lightbulb,
 } from "lucide-react";
 import { useStoryStore } from "../store/useStoryStore";
 import {
@@ -22,7 +27,10 @@ import {
   getStatusLabel,
   getPathDetails,
   getUniqueCluesForPath,
+  analyzePath,
+  generatePathSummary,
   type PathDetail,
+  type PathAnalysis,
 } from "../utils/storyEngine";
 import { cn } from "../lib/utils";
 import type { StoryCard } from "../types";
@@ -40,21 +48,90 @@ function PathChainView({
     () => getPathDetails(path, cards),
     [path, cards],
   );
-
   const uniqueClues = useMemo(
     () => getUniqueCluesForPath(path, cards),
     [path, cards],
   );
+  const analysis: PathAnalysis = useMemo(
+    () => analyzePath(path, cards, details),
+    [path, cards, details],
+  );
+  const [copied, setCopied] = useState(false);
+
+  const handleCopySummary = async () => {
+    const summary = generatePathSummary(path, cards, details, analysis);
+    try {
+      await navigator.clipboard.writeText(summary);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      alert("复制失败，请手动选择文本复制");
+    }
+  };
 
   return (
     <div className="mt-3 pt-3 border-t border-horror-border/50 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-xs">
+          <Sparkles className="w-3.5 h-3.5 text-horror-warning" />
+          <span className="font-medium text-horror-text">因果链详情</span>
+          <span className="text-horror-muted">（共 {details.length} 步）</span>
+        </div>
+        <button
+          onClick={handleCopySummary}
+          className="text-[11px] flex items-center gap-1 px-2 py-0.5 rounded border border-horror-blood/40 text-horror-bloodLight hover:bg-horror-blood/10 transition-colors"
+        >
+          {copied ? (
+            <>
+              <Check className="w-3 h-3" /> 已复制讲评摘要
+            </>
+          ) : (
+            <>
+              <Copy className="w-3 h-3" /> 复制讲评摘要
+            </>
+          )}
+        </button>
+      </div>
+
       <div className="space-y-2">
         {details.map((step, idx) => (
           <div key={idx} className="relative pl-5">
             {idx < details.length - 1 && (
-              <div className="absolute left-[7px] top-5 bottom-[-8px] w-px bg-horror-border" />
+              <div
+                className={cn(
+                  "absolute left-[7px] top-5 bottom-[-8px] w-px",
+                  step.isLoopBack ? "bg-horror-warning" : "bg-horror-border",
+                )}
+              />
             )}
-            <div className="absolute left-0 top-1.5 w-3.5 h-3.5 rounded-full border-2 border-horror-blood bg-horror-panel" />
+            <div
+              className={cn(
+                "absolute left-0 top-1.5 w-3.5 h-3.5 rounded-full border-2 bg-horror-panel flex items-center justify-center",
+                step.isLoopBack
+                  ? "border-horror-warning"
+                  : step.isFirstClueAppearance.length > 0
+                  ? "border-horror-triggerLight"
+                  : "border-horror-blood",
+              )}
+            >
+              {step.isFirstClueAppearance.length > 0 && (
+                <div className="w-1.5 h-1.5 rounded-full bg-horror-triggerLight" />
+              )}
+            </div>
+
+            <div className="text-[10px] text-horror-muted mb-0.5">
+              第 {idx + 1} 步
+              {step.isLoopBack && (
+                <span className="ml-1 text-horror-warning">
+                  🔄 循环回指第 {(step.loopBackToStep || 0) + 1} 步
+                </span>
+              )}
+              {step.isFirstClueAppearance.length > 0 && (
+                <span className="ml-1 text-horror-triggerLight">
+                  ⭐ 新线索出现
+                </span>
+              )}
+            </div>
 
             {step.choiceText && (
               <div className="mb-1.5 flex items-start gap-1.5 text-xs">
@@ -106,10 +183,16 @@ function PathChainView({
                 {step.cluesAtThisStep.map((t, i) => (
                   <span
                     key={i}
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-horror-blood/15 text-horror-bloodLight border border-horror-blood/30"
+                    className={cn(
+                      "text-[10px] px-1.5 py-0.5 rounded border",
+                      step.isFirstClueAppearance.includes(t)
+                        ? "bg-horror-trigger/20 text-horror-triggerLight border-horror-trigger/40 font-medium"
+                        : "bg-horror-blood/15 text-horror-bloodLight border-horror-blood/30",
+                    )}
                   >
                     <Tag className="w-2 h-2 inline mr-0.5 -mt-0.5" />
                     {t}
+                    {step.isFirstClueAppearance.includes(t) && " 首次"}
                   </span>
                 ))}
               </div>
@@ -128,30 +211,85 @@ function PathChainView({
         ))}
       </div>
 
-      <div className="p-2.5 rounded bg-horror-bg/50 border border-horror-border/50">
-        <div className="flex items-center gap-1.5 text-xs mb-1">
-          <Sparkles className="w-3 h-3 text-horror-warning" />
-          <span className="text-horror-warning font-medium">
-            本路径共收集 {uniqueClues.length} 个不重复线索
-          </span>
-          {uniqueClues.length < 2 && (
-            <span className="text-horror-bloodLight text-[10px] ml-1">
-              （不足2个，伏笔不够）
+      <div className="space-y-2">
+        <div className="p-2.5 rounded bg-horror-bg/50 border border-horror-border/50">
+          <div className="flex items-center gap-1.5 text-xs mb-1.5">
+            <Sparkles className="w-3 h-3 text-horror-warning" />
+            <span className="text-horror-warning font-medium">
+              本路径共收集 {uniqueClues.length} 个不重复线索
             </span>
+            {uniqueClues.length < 2 && (
+              <span className="text-horror-bloodLight text-[10px] ml-1">
+                （不足 2 个，伏笔不够）
+              </span>
+            )}
+          </div>
+          {uniqueClues.length > 0 && (
+            <div className="space-y-1">
+              {uniqueClues.map((c) => {
+                const step = analysis.clueAppearanceSteps[c];
+                return (
+                  <div
+                    key={c}
+                    className="flex items-center justify-between text-[10px]"
+                  >
+                    <span className="px-1.5 py-0.5 rounded bg-horror-warning/15 text-horror-warning border border-horror-warning/30">
+                      {c}
+                    </span>
+                    <span className="text-horror-muted">
+                      首次出现于第 {typeof step === "number" ? step + 1 : "-"} 步
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
-        {uniqueClues.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {uniqueClues.map((c, i) => (
-              <span
-                key={i}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-horror-warning/15 text-horror-warning border border-horror-warning/30"
-              >
-                {c}
+
+        {analysis.weakPoints.length > 0 ? (
+          <div className="p-2.5 rounded bg-horror-deficient/10 border border-horror-deficient/40">
+            <div className="flex items-center gap-1.5 text-xs mb-1.5">
+              <AlertCircle className="w-3 h-3 text-horror-bloodLight" />
+              <span className="text-horror-bloodLight font-medium">
+                ⚠️ 铺垫薄弱段（{analysis.weakPoints.length} 处）
               </span>
-            ))}
+            </div>
+            <div className="space-y-1">
+              {analysis.weakPoints.map((w, i) => (
+                <div key={i} className="text-[10px] text-horror-muted">
+                  · 第 {w.step + 1} 步「{w.cardTitle}」：{w.reason}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="p-2.5 rounded bg-horror-trigger/10 border border-horror-trigger/30">
+            <div className="flex items-center gap-1.5 text-xs">
+              <Lightbulb className="w-3 h-3 text-horror-triggerLight" />
+              <span className="text-horror-triggerLight font-medium">
+                ✅ 线索分布均匀，没有明显薄弱段
+              </span>
+            </div>
           </div>
         )}
+
+        <div className="p-2.5 rounded bg-horror-card/50 border border-horror-border/50 grid grid-cols-2 gap-2">
+          <div>
+            <div className="text-[10px] text-horror-muted">结局前 3 步新增线索</div>
+            <div className="text-sm font-display font-bold text-horror-text">
+              {analysis.preEndingClueCount} 个
+              {analysis.preEndingClueCount === 0 && (
+                <span className="text-[10px] text-horror-bloodLight ml-1">（太少）</span>
+              )}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] text-horror-muted">线索密度</div>
+            <div className="text-sm font-display font-bold text-horror-text">
+              {(analysis.endingClueDensity * 10).toFixed(1)} / 10
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -196,20 +334,26 @@ export default function RouteTestPanel() {
       ending: StoryCard;
       path: string[];
       clues: number;
+      hasLoop: boolean;
     }[] = [];
     endingCards.forEach((ending) => {
       const pathsToEnding = testResult[ending.id]?.reachedPaths || [];
       pathsToEnding.forEach((p, pIdx) => {
         const uniqueClues = new Set<string>();
+        const seenIds = new Set<string>();
+        let hasLoop = false;
         p.forEach((cid) => {
           const c = cards.find((card) => card.id === cid);
           if (c) c.clueTags.forEach((t) => uniqueClues.add(t));
+          if (seenIds.has(cid)) hasLoop = true;
+          seenIds.add(cid);
         });
         paths.push({
           key: `${ending.id}-${pIdx}`,
           ending,
           path: p,
           clues: uniqueClues.size,
+          hasLoop,
         });
       });
     });
@@ -234,10 +378,20 @@ export default function RouteTestPanel() {
             运行路线测试
           </button>
         ) : (
-          <button onClick={handleClearTest} className="horror-btn flex items-center gap-1.5">
-            <Square className="w-4 h-4" />
-            清除测试结果
-          </button>
+          <>
+            <button onClick={handleClearTest} className="horror-btn flex items-center gap-1.5">
+              <Square className="w-4 h-4" />
+              清除测试结果
+            </button>
+            <button
+              onClick={handleRunTest}
+              className="horror-btn flex items-center gap-1.5"
+              title="重新运行"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              重测
+            </button>
+          </>
         )}
         {!openingCard && (
           <span className="text-xs text-horror-warning flex items-center gap-1">
@@ -318,7 +472,7 @@ export default function RouteTestPanel() {
                   style={{ backgroundColor: getStatusColor("clue-deficient") }}
                 />
                 <span className="text-horror-muted">
-                  {getStatusLabel("clue-deficient")} — 所有到达路径线索均少于2个
+                  {getStatusLabel("clue-deficient")} — 所有到达路径线索均少于 2 个
                 </span>
               </div>
             </div>
@@ -330,7 +484,7 @@ export default function RouteTestPanel() {
             <div className="flex items-center gap-2">
               <Circle className="w-4 h-4 text-horror-warning" />
               <span className="text-sm font-medium">因果链报告</span>
-              <span className="text-xs text-horror-muted">（点击路径展开详情）</span>
+              <span className="text-xs text-horror-muted">（点击路径展开详情，可复制讲评摘要）</span>
             </div>
             {allPaths.map((item) => {
               const isExpanded = expandedPath === item.key;
@@ -365,6 +519,11 @@ export default function RouteTestPanel() {
                           <Circle className="w-3.5 h-3.5 text-horror-warning" />
                         )}
                         {item.ending.title}
+                        {item.hasLoop && (
+                          <span className="text-[10px] px-1 py-0.5 rounded bg-horror-warning/20 text-horror-warning ml-1">
+                            含循环
+                          </span>
+                        )}
                       </span>
                       <span
                         className={cn(
@@ -380,20 +539,28 @@ export default function RouteTestPanel() {
                     <div className="flex flex-wrap items-center gap-1 text-xs ml-5">
                       {item.path.map((cid, i) => {
                         const c = cards.find((card) => card.id === cid);
+                        const isRepeat =
+                          i > 0 && item.path.slice(0, i).includes(cid);
                         return (
-                          <span key={cid} className="flex items-center gap-1">
+                          <span key={`${cid}-${i}`} className="flex items-center gap-1">
                             <span
-                              className="px-1.5 py-0.5 rounded"
-                              style={{
-                                backgroundColor: testResult?.[cid]
-                                  ? `${getStatusColor(testResult[cid].status)}20`
-                                  : undefined,
-                                color: testResult?.[cid]
-                                  ? getStatusColor(testResult[cid].status)
-                                  : undefined,
-                              }}
+                              className={cn(
+                                "px-1.5 py-0.5 rounded",
+                                isRepeat
+                                  ? "bg-horror-warning/20 text-horror-warning border border-horror-warning/40 border-dashed"
+                                  : "",
+                              )}
+                              style={
+                                !isRepeat && testResult?.[cid]
+                                  ? {
+                                      backgroundColor: `${getStatusColor(testResult[cid].status)}20`,
+                                      color: getStatusColor(testResult[cid].status),
+                                    }
+                                  : undefined
+                              }
                             >
                               {c?.title || cid}
+                              {isRepeat && " 🔄"}
                             </span>
                             {i < item.path.length - 1 && (
                               <ChevronRight className="w-3 h-3 text-horror-muted" />
@@ -421,10 +588,10 @@ export default function RouteTestPanel() {
         {!testResult && (
           <div className="text-center py-12 text-horror-muted">
             <Route className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="text-sm">点击"运行路线测试"</p>
-            <p className="text-xs mt-1">工具将自动遍历所有剧情分支</p>
+            <p className="text-sm">点击「运行路线测试」</p>
+            <p className="text-xs mt-1">工具将自动遍历所有剧情分支（支持循环和汇合）</p>
             <p className="text-xs mt-3">并标记未触发卡片和线索不足的结局</p>
-            <p className="text-xs mt-1">展开路径可查看完整因果链报告</p>
+            <p className="text-xs mt-1">展开路径可查看完整因果链报告和讲评摘要</p>
           </div>
         )}
       </div>

@@ -13,9 +13,17 @@ import {
   Info,
   Wand2,
   ChevronRight,
+  ThumbsUp,
+  BrainCircuit,
+  Sparkle,
 } from "lucide-react";
 import { useStoryStore } from "../store/useStoryStore";
-import { generateReviewHints, type ReviewHint } from "../utils/storyEngine";
+import {
+  generateReviewHints,
+  recommendScores,
+  type ReviewHint,
+  type ScoreRecommendation,
+} from "../utils/storyEngine";
 import { cn } from "../lib/utils";
 
 type CriterionKey = "ruleStability" | "costClarity" | "foreshadowing";
@@ -100,6 +108,125 @@ function StarRating({
   );
 }
 
+function ScoreRecommendCard({
+  rec,
+  onApply,
+  applied,
+}: {
+  rec: ScoreRecommendation;
+  onApply: () => void;
+  applied: boolean;
+}) {
+  const confColor =
+    rec.confidence === "high"
+      ? "text-horror-triggerLight"
+      : rec.confidence === "medium"
+      ? "text-horror-warning"
+      : "text-horror-muted";
+
+  const confLabel =
+    rec.confidence === "high" ? "高置信度" : rec.confidence === "medium" ? "中置信度" : "参考";
+
+  return (
+    <div className="p-3 rounded bg-gradient-to-br from-horror-card/80 to-horror-bg/50 border border-horror-border/80 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <BrainCircuit className="w-4 h-4 text-horror-bloodLight" />
+          <span className="text-sm font-medium">AI 推荐评分</span>
+          <span className={cn("text-[10px] px-1.5 py-0.5 rounded bg-current/10", confColor)}>
+            {confLabel}
+          </span>
+        </div>
+        <button
+          onClick={onApply}
+          disabled={applied}
+          className={cn(
+            "text-[11px] px-2 py-0.5 rounded border flex items-center gap-1 transition-colors",
+            applied
+              ? "border-horror-trigger/30 text-horror-triggerLight bg-horror-trigger/10 cursor-default"
+              : "border-horror-blood/40 text-horror-bloodLight hover:bg-horror-blood/10",
+          )}
+        >
+          {applied ? (
+            <>
+              <CheckCircle2 className="w-3 h-3" /> 已应用
+            </>
+          ) : (
+            <>
+              <Sparkle className="w-3 h-3" /> 一键带入评分+评语
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="p-2 rounded bg-horror-bg/50">
+          <div className="text-[10px] text-horror-muted mb-0.5">规则稳定性</div>
+          <div className="text-xl font-display font-bold text-horror-text">
+            {rec.ruleStability}
+            <span className="text-xs text-horror-muted font-normal"> / 5</span>
+          </div>
+          <div className="flex justify-center gap-0 mt-0.5">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Star
+                key={i}
+                className={cn(
+                  "w-2.5 h-2.5",
+                  i <= rec.ruleStability
+                    ? "text-horror-warning fill-horror-warning"
+                    : "text-horror-muted/40",
+                )}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="p-2 rounded bg-horror-bg/50">
+          <div className="text-[10px] text-horror-muted mb-0.5">代价清晰度</div>
+          <div className="text-xl font-display font-bold text-horror-text">
+            {rec.costClarity}
+            <span className="text-xs text-horror-muted font-normal"> / 5</span>
+          </div>
+          <div className="flex justify-center gap-0 mt-0.5">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Star
+                key={i}
+                className={cn(
+                  "w-2.5 h-2.5",
+                  i <= rec.costClarity
+                    ? "text-horror-warning fill-horror-warning"
+                    : "text-horror-muted/40",
+                )}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="p-2 rounded bg-horror-bg/50">
+          <div className="text-[10px] text-horror-muted mb-0.5">伏笔合理性</div>
+          <div className="text-xl font-display font-bold text-horror-text">
+            {rec.foreshadowing}
+            <span className="text-xs text-horror-muted font-normal"> / 5</span>
+          </div>
+          <div className="flex justify-center gap-0 mt-0.5">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Star
+                key={i}
+                className={cn(
+                  "w-2.5 h-2.5",
+                  i <= rec.foreshadowing
+                    ? "text-horror-warning fill-horror-warning"
+                    : "text-horror-muted/40",
+                )}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="text-[10px] text-horror-muted">{rec.reasoning}</div>
+    </div>
+  );
+}
+
 function HintCard({
   hint,
   onApply,
@@ -147,10 +274,16 @@ function HintCard({
 export default function ReviewPanel() {
   const { cards, testResult, review, setReview, clearReview } = useStoryStore();
   const [saved, setSaved] = useState(false);
+  const [scoreApplied, setScoreApplied] = useState(false);
 
   const hints = useMemo(
     () => generateReviewHints(cards, testResult),
     [cards, testResult],
+  );
+
+  const scoreRec = useMemo(
+    () => recommendScores(cards, testResult, hints),
+    [cards, testResult, hints],
   );
 
   const handleSave = () => {
@@ -170,6 +303,21 @@ export default function ReviewPanel() {
   const applyAllHints = () => {
     const text = hints.map((h, i) => `${i + 1}. ${h.suggestedText}`).join("\n\n");
     setReview({ comment: text });
+  };
+
+  const applyScoreRecommendation = () => {
+    const scoreText = `综合评分建议：规则稳定性 ${scoreRec.ruleStability}/5，代价清晰度 ${scoreRec.costClarity}/5，伏笔合理性 ${scoreRec.foreshadowing}/5。`;
+    const hintsIntro =
+      hints.length > 0
+        ? `\n\n详细点评要点：\n${hints.map((h, i) => `${i + 1}. ${h.suggestedText}`).join("\n\n")}`
+        : "";
+    setReview({
+      ruleStability: scoreRec.ruleStability,
+      costClarity: scoreRec.costClarity,
+      foreshadowing: scoreRec.foreshadowing,
+      comment: scoreText + hintsIntro,
+    });
+    setScoreApplied(true);
   };
 
   const totalScore = review
@@ -202,6 +350,14 @@ export default function ReviewPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {testResult && (
+          <ScoreRecommendCard
+            rec={scoreRec}
+            onApply={applyScoreRecommendation}
+            applied={scoreApplied}
+          />
+        )}
+
         {hints.length > 0 && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -236,11 +392,11 @@ export default function ReviewPanel() {
               <Info className="w-3.5 h-3.5 text-horror-warning" />
               <span className="text-horror-warning">小提示</span>
             </div>
-            先在中间栏运行路线测试，这里会根据测试结果自动生成点评建议。
+            先在中间栏运行路线测试，这里会根据测试结果自动生成评分推荐和点评建议。
           </div>
         )}
 
-        {review && (
+        {(review || totalScore > 0) && (
           <div className="p-4 rounded bg-gradient-to-br from-horror-card to-horror-bg border border-horror-border">
             <div className="text-xs text-horror-muted mb-1">综合评分</div>
             <div className="flex items-end gap-2">
@@ -274,7 +430,10 @@ export default function ReviewPanel() {
                 </div>
                 <StarRating
                   value={defaultReview[c.key]}
-                  onChange={(v) => setReview({ [c.key]: v })}
+                  onChange={(v) => {
+                    setReview({ [c.key]: v });
+                    setScoreApplied(false);
+                  }}
                 />
               </div>
               <p className="text-xs text-horror-warning/80 italic bg-horror-bg/50 px-2 py-1.5 rounded border border-horror-border/50">
@@ -291,9 +450,12 @@ export default function ReviewPanel() {
           </label>
           <textarea
             value={defaultReview.comment}
-            onChange={(e) => setReview({ comment: e.target.value })}
+            onChange={(e) => {
+              setReview({ comment: e.target.value });
+              setScoreApplied(false);
+            }}
             className="horror-input resize-none h-40"
-            placeholder="请从规则设定、玩家体验、叙事技巧等方面给出简短评语，指出优点和改进建议...（可使用上方AI提示一键带入）"
+            placeholder="请从规则设定、玩家体验、叙事技巧等方面给出简短评语，指出优点和改进建议...（可使用上方AI推荐评分或点评提示一键带入）"
           />
           <p className="text-xs text-horror-muted mt-1.5">
             {defaultReview.comment.length} / 800 字
@@ -312,7 +474,10 @@ export default function ReviewPanel() {
         {review && (
           <button
             onClick={() => {
-              if (confirm("确定清空点评吗？")) clearReview();
+              if (confirm("确定清空点评吗？")) {
+                clearReview();
+                setScoreApplied(false);
+              }
             }}
             className="horror-btn-danger flex items-center gap-1.5 ml-auto"
           >
